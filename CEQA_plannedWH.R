@@ -63,8 +63,12 @@ wh_url <- 'https://raw.githubusercontent.com/RadicalResearchLLC/WarehouseMap/mai
 names(plannedWH)
 names(centralPlanning)
 tracked_warehouses <- rbind(plannedWH, centralPlanning)
-warehouses <- sf::st_read(dsn = wh_url) 
+#warehouses <- sf::st_read(dsn = wh_url) 
 
 names(plannedWH)
 rm(ls = Central_WH_tracked, centralPlanning, CentralValleyPlanned,
-   CEQA_WH, plannedWH, areaM2)
+   CEQA_WH, plannedWH, areaM2, warehouses)
+
+getwd()
+unlink('plannedWH_geom.geojson')
+sf::st_write(tracked_warehouses, 'plannedWH_geom.geojson')

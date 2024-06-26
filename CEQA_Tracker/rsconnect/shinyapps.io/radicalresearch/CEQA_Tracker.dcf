@@ -1,0 +1,12 @@
+name: CEQA_Tracker
+title: CEQA_Tracker
+username: radicalresearch
+account: radicalresearch
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 12235261
+bundleId: 8788292
+url: https://radicalresearch.shinyapps.io/CEQA_Tracker/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
