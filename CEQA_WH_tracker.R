@@ -62,14 +62,21 @@ plannedWH <- sf::st_read('https://raw.githubusercontent.com/RadicalResearchLLC/P
   filter(!is.na(sch_number))
 
 ## Built SoCal warehouses - SCH list - need to map to APNs
-builtWH_list <- c('2022030012', '2020090441', '2015081081',
-                  '2020050079', '2020049052', '2014011009',
-                  '2020019017', '2022110076', '2022060066',
-                  '2022040166', '2021090555', '2021020280',
-                  '2021010163', '2020040155', '2019070040',
-                  '2020059021', '2022020501', '2020059013',
-                  '2021020421'
+builtWH_list1 <- c(2022030012, 2020090441, 2015081081,
+                  2020050079, 2020049052, 2014011009,
+                  2020019017, 2022110076, 2022060066,
+                  2022040166, 2021090555, 2021020280,
+                  2021010163, 2020040155, 2019070040,
+                  2020059021, 2022020501, 2020059013,
+                  2021020421
 )
+
+built_WH_june2024 <- sf::st_read('built_listJune2024.geojson') |> 
+  select(apn) |> 
+  st_set_geometry(value = NULL) |> 
+  distinct() |> 
+  mutate(category2 = 'Built')
+
 
 #wh_url <- 'https://raw.githubusercontent.com/RadicalResearchLLC/WarehouseMap/main/WarehouseCITY/geoJSON/comboFinal.geojson'
 #approved_warehouses <- sf::st_read(dsn = wh_url) |> 
@@ -155,7 +162,10 @@ anomaly_projects <- tracked_warehouses3 |>
 
 tracked_warehouses4 <- tracked_warehouses3 |> 
   filter(!is.na(recvd_date)) |> 
-  bind_rows(anomaly_projects) 
+  bind_rows(anomaly_projects)  |> 
+  left_join(built_WH_june2024, by = c('project' = 'apn')) |> 
+  mutate(category = ifelse(is.na(category2), category, category2)) |> 
+  select(-category2)
 
 tracked_centroids <- st_centroid(tracked_warehouses4) |> 
   st_intersection(CA_counties) |> 
@@ -166,8 +176,8 @@ tracked_centroids <- st_centroid(tracked_warehouses4) |>
 
 tracked_warehouses <- tracked_warehouses4 |> 
   select(-category) |> 
-  left_join(tracked_centroids)
-
+  left_join(tracked_centroids)  
+ 
 county_stats1<- tracked_centroids |> 
   group_by(county, category) |> 
   summarize(count = n(), sum_area = sum(parcel_area), .groups = 'drop') |> 
@@ -192,8 +202,8 @@ ggplot() +
   geom_col(data = county_stats, aes(x = acres, y = reorder(county, acresAll), fill = category)) +
   theme_bw() +
   labs(x = 'Acres', y = '', title = 'CEQA warehouse projects 2020-2024') +
-  scale_fill_manual(values = c('red', 'darkred', 'grey40'), 
-                    breaks = c('Approved', 'CEQA Review', 'Not characterized')
+  scale_fill_manual(values = c('red', 'darkred', 'grey40', 'blue'), 
+                    breaks = c('Approved', 'CEQA Review', 'Not characterized', 'Built')
                     )
 ggsave('CEQA_warehouses.png', dpi = 300)
 
@@ -203,8 +213,8 @@ ggplot() +
   labs(x = 'Additional Warehouse SQ FT per capita', y = '', title = 'CEQA warehouse projects 2020-2024',
        caption = 'Warehouse data from CEQANET
        Population from CA DoF Table E-1') +
-  scale_fill_manual(values = c('red', 'darkred', 'grey40'), 
-                    breaks = c('Approved', 'CEQA Review', 'Not characterized'))
+  scale_fill_manual(values = c('red', 'darkred', 'grey40', 'blue'), 
+                    breaks = c('Approved', 'CEQA Review', 'Not characterized', 'Built'))
   
 rm(ls = industrial_projects, newWH_list, newWH7, tmp,
    county_stats1, county_stats2, industrial_most_recent,
