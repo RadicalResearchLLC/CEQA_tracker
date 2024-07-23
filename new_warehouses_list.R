@@ -29,7 +29,7 @@ for(i in 1:length(list_geojson)) {
 getwd()
 setwd(wd)
 
-industrial_projects <- read_csv('C:/Dev/CEQA_Tracker/CEQA_all_industrial_allTime.csv') |>   
+industrial_projects <- read_csv('C:/Dev/CEQA_Tracker/CEQA Documents_071024.csv') |>   
   janitor::clean_names() |> 
   dplyr::select(sch_number, lead_agency_name, lead_agency_title,
                 project_title, received, document_portal_url, counties, cities,
@@ -54,4 +54,31 @@ newWH7 <- newWH_list |>
     mutate(parcel_area = area*10.7639,
            category = 'CEQA Review')
 
+##Check for duplicates
+industrial_multiples <- industrial_most_recent |> 
+  select(sch_number) |> 
+  group_by(sch_number) |> 
+  summarize(count = n()) 
 
+rm(ls = industrial_multiples, industrial_projects)
+
+gs = 'https://docs.google.com/spreadsheets/d/1Dw-HLvt5AzTY8or3ZFiDdlXX5Xv1u-ASD9t-153FwNc/edit#gid=0'
+Y_N_WH <- read_sheet(gs, sheet = 'Y_N_WH') |> 
+  filter(Y_N_WH == 'Y')  
+
+wh_Y_list <- industrial_most_recent |> 
+  inner_join(Y_N_WH) |> 
+  select(sch_number, project, recvd_date, document_type, lead_agency, Y_N_WH, Notes) |> 
+  distinct()
+
+wh_missing_list <- plannedWH |> 
+  anti_join(wh_Y_list) |> 
+  select(sch_number, project) |> 
+  left_join(industrial_most_recent) |> 
+  mutate(Y_N_WH = 'Y', Notes = '',
+         sch_number1 = str_c("<a href='", document_portal_url, "'>", sch_number, "</a>")) |> 
+  select(sch_number, sch_number1, project, lead_agency_name, recvd_date, counties, Y_N_WH, Notes) |> 
+  rename(lead_agency = lead_agency_name) |> 
+  st_set_geometry(value = NULL)
+
+#sheet_append(gs, sheet = 'Y_N_WH', data = wh_missing_list)
