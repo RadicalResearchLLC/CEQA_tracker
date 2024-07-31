@@ -17,7 +17,8 @@ library(tidyverse)
 plannedWH <- sf::st_read('https://github.com/RadicalResearchLLC/CEQA_tracker/raw/main/CEQA_WH.geojson') |> 
   st_transform(crs = 4326) |> 
   filter(project %ni% c('South Perris Industrial Project',
-                        'Northern Gateway Commerce Center')) |> 
+                        'Northern Gateway Commerce Center',
+                        'The Oasis at Indio Project')) |> 
   filter(!is.na(sch_number))
 
 ##FIXME - is there a way to auto-authenticate?
@@ -106,10 +107,9 @@ antiJoinList <- newWH7 |>
   anti_join(planned_list4antiJoin) |>
   left_join(industrial_most_recent) |> 
   select(project, ceqa_url, sch_number, parcel_area,
-         recvd_date, document_type, counties, category,
-         stage_pending_approved, geometry) |> 
-  mutate(year_rcvd = lubridate::year(recvd_date)) |> 
-  rename(county = counties)
+         recvd_date, document_type, category,
+         stage_pending_approved, lead_agency_title, geometry) |> 
+  mutate(year_rcvd = lubridate::year(recvd_date)) 
 
 names(antiJoinList)
 ##FIXME - add error handling for no new warehouses?
@@ -119,11 +119,12 @@ plannedWH_noCEQA <- plannedWH |>
   filter(is.na(recvd_date)) |> 
   select(project, sch_number, parcel_area, stage_pending_approved) |> 
   left_join(industrial_most_recent, by = 'sch_number') |> 
-  select(project, document_portal_url, sch_number, parcel_area, recvd_date, document_type, counties) |> 
+  select(project, document_portal_url, sch_number, parcel_area, recvd_date, 
+    document_type) |> 
     mutate(year_rcvd = lubridate::year(recvd_date),
            category = 'CEQA Review',
            stage_pending_approved = document_type) |> 
-  rename(county = counties, ceqa_url = document_portal_url)
+  rename(ceqa_url = document_portal_url)
 
 names(plannedWH)
 names(plannedWH_noCEQA)
@@ -132,7 +133,13 @@ plannedWH2 <- plannedWH |>
   filter(!is.na(recvd_date)) |> 
   bind_rows(plannedWH_noCEQA)
 
-tracked_warehouses2 <- bind_rows(plannedWH2, antiJoinList) |> 
+tracked_warehouses2 <- plannedWH2 |> 
+  left_join(industrial_most_recent) |> 
+  select(project, ceqa_url, sch_number, parcel_area,
+    recvd_date, document_type, category,
+    stage_pending_approved, lead_agency_title, geometry) |>
+  bind_rows(antiJoinList) |> 
+  mutate(year_rcvd = lubridate::year(recvd_date)) |> 
   mutate(year_rcvd = ifelse(year_rcvd < 2018, 2018, year_rcvd))
 
 distinct_SCH <- tracked_warehouses2 |> 
@@ -190,7 +197,7 @@ rm(ls = Central_WH_tracked, centralPlanning, CentralValleyPlanned,
 tracked_warehouses3 <- tracked_warehouses2 |> 
   left_join(industrial_most_recent) |> 
   select(project, ceqa_url, sch_number, parcel_area, recvd_date, document_type,
-         county, stage_pending_approved, year_rcvd, category) |> 
+         stage_pending_approved, year_rcvd, category, lead_agency_title) |> 
   mutate(year_rcvd = year(recvd_date)) #|> 
 
 #Fix anomaly projects
@@ -230,23 +237,19 @@ tracked_warehouses4 <- tracked_warehouses3 |>
   ) |> 
   select(-category2)
 
-county_counts <- tracked_warehouses4 |> 
+tracked_centroids <- st_centroid(tracked_warehouses4) |> 
+  st_intersection(CA_counties) |> 
+  st_set_geometry(value = NULL) 
+
+tracked_warehouses <- tracked_warehouses4 |> 
+  left_join(tracked_centroids)  |> 
+  select(-category)
+
+county_counts <- tracked_warehouses |> 
   select(county, parcel_area) |> 
   st_set_geometry(value = NULL) |> 
   group_by(county) |> 
   summarize(count = n(), area = round(sum(parcel_area)/43560, 0))
-
-tracked_centroids <- st_centroid(tracked_warehouses4) |> 
-  select(-county) |> 
-  st_intersection(CA_counties) |> 
-  st_set_geometry(value = NULL) |> 
-  mutate(category = ifelse(county %in% c(
-    'Riverside', 'San Bernardino', 'San Joaquin', 'Los Angeles', 
-    'Orange', 'Stanislaus'), category, 'Not characterized'))
-
-tracked_warehouses <- tracked_warehouses4 |> 
-  select(-category) |> 
-  left_join(tracked_centroids)  
  
 county_stats1<- tracked_centroids |> 
   group_by(county, document_type_bins) |> 
@@ -264,21 +267,26 @@ county_stats2 <- county_stats1 |>
 
 county_stats <- left_join(county_stats1, county_stats2)
 
-total_acres <- county_stats |> 
-  summarize(acres_total = sum(acres),
-            count = n())
+CA_stats <- county_stats2 |> 
+  summarize(count = sum(countAll),
+            acres = sum(acresAll)) |> 
+  mutate(totalPop = 39128162) |> 
+  mutate(WH_SF_per_capita = round(acres*43560/totalPop, 1))
 
 ggplot() +
   geom_col(data = county_stats, aes(x = acres, y = reorder(county, acresAll), 
                                     fill = document_type_bins)) +
   theme_bw() +
-  labs(x = 'Acres', y = '', title = 'CEQA warehouse projects 2020-2024',
+  labs(x = 'Warehouse area (Acres)', y = '', title = 'CEQA warehouse projects 2020-2024',
        fill = 
        'CEQA document',
        caption = 'Project data from CEQANET - Jan 1, 2020 - July 30, 2024') +
   scale_fill_manual(values = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
                     breaks = c('MND', 'EIR', 'NOP', 'FIN', 'Other')
-                    )
+                    ) +
+  annotate('text', x = 2500, y = 7, label = 'Median - 10 acres', color = 'blue') +
+  annotate('text', x = 2500, y = 10, label = 'Mean - 545 acres') +
+  geom_vline(xintercept = 545, color = 'grey20', linetype = 'twodash')
 ggsave('CEQA_warehouses.png', dpi = 300)
 
 ggplot() +
@@ -293,16 +301,33 @@ ggplot() +
          'CEQA document') +
   scale_fill_manual(values = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
                    breaks = c('MND', 'EIR', 'NOP', 'FIN', 'Other')
-  )
+  ) +
+  annotate('text', x = 90, y = 7, label = 'Median - 1 SQ FT per capita', color = 'blue') +
+  annotate('text', x = 90, y = 10, label = 'Mean - 35 SQ FT per capita', color = 'black') +
+  geom_vline(xintercept = 35, color = 'grey20', linetype = 'twodash')
+
 ggsave('CEQA_per_capita.png')
 
-rm(ls = industrial_projects, newWH_list, newWH7, tmp,
+rm(ls =  newWH_list, newWH7, tmp,
    county_stats1, county_stats2, industrial_most_recent,
    tracked_warehouses2, tracked_warehouses3,
    tracked_centroids, tracked_warehouses4)
 
-wd <- getwd()
+##Trying to fix weird string encodings of project names
+project_names <- tracked_warehouses |> 
+  select(sch_number, project) |> 
+  st_set_geometry(value = NULL)
 
+wd <- getwd()
+write.csv(project_names, 'project_names.csv')
+clean_names <- read_csv('project_names.csv', locale = readr::locale(encoding = 'latin1')) |> 
+  select(sch_number, project) |> 
+  rename(project3 = project)
+
+tracked_warehouses <- tracked_warehouses |> 
+  left_join(clean_names, by = c('sch_number')) |> 
+  distinct()
+  
 unlink('CEQA_WH.geojson')
 sf::st_write(tracked_warehouses, 'CEQA_WH.geojson')
 
