@@ -29,7 +29,8 @@ for(i in 1:length(list_geojson)) {
 getwd()
 setwd(wd)
 
-industrial_projects <- read_csv('C:/Dev/CEQA_Tracker/CEQA Documents_071024.csv') |>   
+##pass in mostRecentCEQAList from document call
+industrial_projects <- read_csv(mostRecentCEQAList) |>   
   janitor::clean_names() |> 
   dplyr::select(sch_number, lead_agency_name, lead_agency_title,
                 project_title, received, document_portal_url, counties, cities,
@@ -58,7 +59,8 @@ newWH7 <- newWH_list |>
 industrial_multiples <- industrial_most_recent |> 
   select(sch_number) |> 
   group_by(sch_number) |> 
-  summarize(count = n()) 
+  summarize(count = n(), .groups = 'drop') |> 
+  filter(count > 1)
 
 rm(ls = industrial_multiples, industrial_projects)
 

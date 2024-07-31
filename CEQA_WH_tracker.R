@@ -90,10 +90,11 @@ built_WH_june2024 <- sf::st_read('built_listJune2024.geojson') |>
 #  filter(sch_number %in% builtWH_list)
 #warehouses <- sf::st_read(dsn = wh_url) 
 
+mostRecentCEQAList <- 'C:/Dev/CEQA_Tracker/CEQA Documents073024.csv'
 source('C:/Dev/CEQA_Tracker/new_warehouses_list.R')
 
 planned_list4antiJoin <- plannedWH |> 
-  select(sch_number, project) |> 
+  select(sch_number) |> 
   st_set_geometry(value = NULL) |> 
   distinct() 
 
@@ -102,12 +103,37 @@ names(wh_missing_list)
 antiJoinList <- newWH7 |> 
   #select(sch_number) |>
   #st_set_geometry(value = NULL) |> 
-  anti_join(planned_list4antiJoin) #|> 
- # select(sch_number)
+  anti_join(planned_list4antiJoin) |>
+  left_join(industrial_most_recent) |> 
+  select(project, ceqa_url, sch_number, parcel_area,
+         recvd_date, document_type, counties, category,
+         stage_pending_approved, geometry) |> 
+  mutate(year_rcvd = lubridate::year(recvd_date)) |> 
+  rename(county = counties)
+
+names(antiJoinList)
+##FIXME - add error handling for no new warehouses?
+
+# Fix missing CEQA info
+plannedWH_noCEQA <- plannedWH |> 
+  filter(is.na(recvd_date)) |> 
+  select(project, sch_number, parcel_area, stage_pending_approved) |> 
+  left_join(industrial_most_recent, by = 'sch_number') |> 
+  select(project, document_portal_url, sch_number, parcel_area, recvd_date, document_type, counties) |> 
+    mutate(year_rcvd = lubridate::year(recvd_date),
+           category = 'CEQA Review',
+           stage_pending_approved = document_type) |> 
+  rename(county = counties, ceqa_url = document_portal_url)
 
 names(plannedWH)
+names(plannedWH_noCEQA)
 
-tracked_warehouses2 <- bind_rows(plannedWH, antiJoinList)  
+plannedWH2 <- plannedWH |> 
+  filter(!is.na(recvd_date)) |> 
+  bind_rows(plannedWH_noCEQA)
+
+tracked_warehouses2 <- bind_rows(plannedWH2, antiJoinList) |> 
+  mutate(year_rcvd = ifelse(year_rcvd < 2018, 2018, year_rcvd))
 
 distinct_SCH <- tracked_warehouses2 |> 
   select(sch_number) |> 
@@ -127,8 +153,8 @@ county_pop <- readxl::read_excel('E-1_2024.xlsx', sheet = 'E-1 CountyState2024',
 colnames(county_pop) <- c('county', 'pop2023', 'pop2024', 'pctChange')
 
 
-WHPal <- colorFactor( palette = c('red', 'darkred'),
-                      domain = tracked_warehouses2$category)
+WHPal <- colorFactor(palette = 'Reds',
+                      domain = tracked_warehouses2$year_rcvd)
 
 leaflet() |> 
   addProviderTiles(providers$Esri.WorldImagery, group = 'Imagery') |> 
@@ -141,19 +167,20 @@ leaflet() |>
     position = 'topright'
   ) |> 
   addPolygons(data = tracked_warehouses2,
-              color = ~WHPal(category),
+              color = ~WHPal(year_rcvd),
               weight = 3, 
-              label = ~paste(sch_number, stage_pending_approved)
+              label = ~paste(sch_number, stage_pending_approved),
+              fillOpacity = 0.7
               ) |> 
   addLegend(data = tracked_warehouses2, 
-            title = 'CEQA stage',
+            title = 'Year',
             pal = WHPal,
-            values = ~category,
+            values = ~year_rcvd,
             position = 'bottomleft')
 
 types <- tracked_warehouses2 |> 
   st_set_geometry(value = NULL) |> 
-  group_by(stage_pending_approved, category) |> 
+  group_by(document_type) |> 
   summarize(count = n())
 
 names(plannedWH)
@@ -188,6 +215,19 @@ tracked_warehouses4 <- tracked_warehouses3 |>
   bind_rows(anomaly_projects) |> 
   left_join(built_WH_june2024, by = c('project' = 'apn')) |> 
   mutate(category = ifelse(is.na(category2), category, category2)) |> 
+  mutate(document_type_bins = case_when(
+    document_type == 'ADM' ~ 'Other',
+    document_type == 'NEG' ~ 'Other',
+    document_type == 'NOD' ~ 'Other',
+    document_type == 'NOI' ~ 'Other',
+    document_type == 'RIR' ~ 'Other',
+    document_type == 'RC' ~ 'Other',
+    document_type == 'SIR' ~ 'Other',
+    document_type == 'REV' ~ 'Other',
+    document_type == 'SBE' ~'Other',
+    TRUE ~ document_type
+    )
+  ) |> 
   select(-category2)
 
 county_counts <- tracked_warehouses4 |> 
@@ -209,11 +249,11 @@ tracked_warehouses <- tracked_warehouses4 |>
   left_join(tracked_centroids)  
  
 county_stats1<- tracked_centroids |> 
-  group_by(county, category) |> 
+  group_by(county, document_type_bins) |> 
   summarize(count = n(), sum_area = sum(parcel_area), .groups = 'drop') |> 
   mutate(acres = round(sum_area/43560, 0)) |> 
   left_join(county_pop) |> 
-  select(-pop2023, -pctChange) |> 
+  select(-pctChange) |> 
   mutate(WH_SF_per_capita = round(sum_area/pop2024, 1))
 
 county_stats2 <- county_stats1 |> 
@@ -229,23 +269,33 @@ total_acres <- county_stats |>
             count = n())
 
 ggplot() +
-  geom_col(data = county_stats, aes(x = acres, y = reorder(county, acresAll), fill = category)) +
+  geom_col(data = county_stats, aes(x = acres, y = reorder(county, acresAll), 
+                                    fill = document_type_bins)) +
   theme_bw() +
-  labs(x = 'Acres', y = '', title = 'CEQA warehouse projects 2020-2024') +
-  scale_fill_manual(values = c('red', 'darkred', 'grey40', 'blue'), 
-                    breaks = c('Approved', 'CEQA Review', 'Not characterized', 'Built')
+  labs(x = 'Acres', y = '', title = 'CEQA warehouse projects 2020-2024',
+       fill = 
+       'CEQA document',
+       caption = 'Project data from CEQANET - Jan 1, 2020 - July 30, 2024') +
+  scale_fill_manual(values = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
+                    breaks = c('MND', 'EIR', 'NOP', 'FIN', 'Other')
                     )
 ggsave('CEQA_warehouses.png', dpi = 300)
 
 ggplot() +
-  geom_col(data = county_stats, aes(x = WH_SF_per_capita, y = reorder(county, WH_SF_per_capitaAll), fill = category)) +
+  geom_col(data = county_stats, aes(x = WH_SF_per_capita, 
+    y = reorder(county, WH_SF_per_capitaAll), 
+    fill = document_type_bins)) +
   theme_bw() +
   labs(x = 'Additional Warehouse SQ FT per capita', y = '', title = 'CEQA warehouse projects 2020-2024',
-       caption = 'Warehouse data from CEQANET
-       Population from CA DoF Table E-1') +
-  scale_fill_manual(values = c('red', 'darkred', 'grey40', 'blue'), 
-                    breaks = c('Approved', 'CEQA Review', 'Not characterized', 'Built'))
-  
+       caption = 'Warehouse data from CEQANET through July 30, 2024
+       Population from CA DoF Table E-1',
+       fill = 
+         'CEQA document') +
+  scale_fill_manual(values = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
+                   breaks = c('MND', 'EIR', 'NOP', 'FIN', 'Other')
+  )
+ggsave('CEQA_per_capita.png')
+
 rm(ls = industrial_projects, newWH_list, newWH7, tmp,
    county_stats1, county_stats2, industrial_most_recent,
    tracked_warehouses2, tracked_warehouses3,
