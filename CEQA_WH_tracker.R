@@ -326,11 +326,17 @@ clean_names <- read_csv('project_names.csv', locale = readr::locale(encoding = '
 
 tracked_warehouses <- tracked_warehouses |> 
   left_join(clean_names, by = c('sch_number')) |> 
-  distinct()
+  distinct() |> 
+  st_make_valid()
   
 unlink('CEQA_WH.geojson')
 sf::st_write(tracked_warehouses, 'CEQA_WH.geojson')
 
+rm(ls = anomaly_projects, antiJoinList, built_WH_june2024, clean_names, county_counts)
+rm(ls = distinct_SCH, planned_list4antiJoin, plannedWH2, project_names, tempsf)
+rm(ls = types, plannedWH_noCEQA, wh_Y_list, wh_missing_list, Y_N_WH)
+
 setwd(str_c(wd, '/CEQA_Tracker'))
 save.image('.RData')
 setwd(wd)
+
