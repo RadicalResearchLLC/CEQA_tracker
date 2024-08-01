@@ -21,8 +21,9 @@ myDTmodServer <- function(id, data) {
                                    list(extend = 'csv', filename = paste(ns('table'), sep='-')))#,
                          #          list(extend = 'excel', filename =  paste(ns('table'), sep = "-")))
                   ),
-                  extensions = c('Buttons'))
+                  extensions = c('Buttons'),
+          filter = list(position = 'top', clear = FALSE)
       )
-    }
   )
-}
+    }
+)}
