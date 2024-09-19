@@ -30,18 +30,18 @@ getwd()
 setwd(wd)
 
 ##pass in mostRecentCEQAList from document call
-industrial_projects <- read_csv(mostRecentCEQAList) |>   
-  janitor::clean_names() |> 
-  dplyr::select(sch_number, lead_agency_name, lead_agency_title,
-                project_title, received, document_portal_url, counties, cities,
-                document_type) |> 
-  mutate(recvd_date = lubridate::mdy(received))
+#industrial_projects <- read_csv(mostRecentCEQAList) |>   
+#  janitor::clean_names() |> 
+#  dplyr::select(sch_number, lead_agency_name, lead_agency_title,
+#                project_title, received, document_portal_url, counties, cities,
+#                document_type) |> 
+#  mutate(recvd_date = lubridate::mdy(received))
 
-industrial_most_recent <- industrial_projects |> 
-  group_by(sch_number) |> 
-  summarize(recvd_date = max(recvd_date)) |> 
-  left_join(industrial_projects) |> 
-  filter(document_portal_url != 'https://ceqanet.opr.ca.gov/2017121007/4')
+#industrial_most_recent <- industrial_projects |> 
+#  group_by(sch_number) |> 
+#  summarize(recvd_date = max(recvd_date)) |> 
+#  left_join(industrial_projects) |> 
+#  filter(document_portal_url != 'https://ceqanet.opr.ca.gov/2017121007/4')
 
 area <- as.numeric(st_area(newWH_list))
 

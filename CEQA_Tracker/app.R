@@ -7,9 +7,11 @@ library(tidyverse)
 library(sf)
 
 #header stuff
-deploy_date <- 'August 1, 2024.'
-version <- 'CEQA Warehouse Tracker Dashboard alpha v0.2, last updated'
-data_download_date <- 'CEQA Industrial data downloaded July 30, 2024'
+deploy_date <- 'August 30, 2024.'
+version <- 'CEQA Warehouse Tracker Dashboard alpha v0.3, last updated'
+data_download_date <- 'CEQA Industrial data downloaded August 30, 2024'
+
+sf_use_s2(FALSE)
 
 # Define UI for application that draws a histogram
 ui <- navbarPage(
@@ -26,15 +28,19 @@ ui <- navbarPage(
   nav_panel(title = 'Tracked Projects',
     layout_columns(
       selectizeInput(inputId = 'County', label = 'Select up to 8 Counties',
-        choices = c('', sort(CA_counties$county)), 
+        choices = c('', sort(unique(tracked_warehouses$county))), 
         options = list(maxItems = 8)),
       selectizeInput(inputId = 'Project', label = 'Search by project name',
         choices = c('No Warehouse Selected', tracked_warehouses$project3),
         options = list(maxItems = 1)
-        )
+        )#,
+     # verbatimTextOutput('test')
       ),
-      shinycssloaders::withSpinner(leafletOutput("map", height = 500)),
-      myDTmodUI('trackedWH'),
+      layout_columns(
+        shinycssloaders::withSpinner(leafletOutput("map", height = 450, width = 600)),
+        shinycssloaders::withSpinner(DTOutput('summaryTbl', width = 500))    
+      ),
+      DTOutput('trackedWH'),
       layout_columns(
         plotOutput('County_SQFT', width = 500), 
         plotOutput('County_perCapita', width = 500)
@@ -82,8 +88,6 @@ server <- function(input, output) {
    
 })
   
- 
-  
   observe({
     req(countyPoly())
     leafletProxy("map", data = countyPoly()) %>%
@@ -114,41 +118,48 @@ server <- function(input, output) {
       scale_fill_manual(values = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
                         breaks = c('MND', 'EIR', 'NOP', 'FIN', 'Other')
       )
-    
+  })
+  
+  countyList <- reactive({
+    listCounty <- countyPoly() |> 
+      st_set_geometry(value = NULL) |> 
+      dplyr::pull(county)
   })
 
   whList <- reactive({
-    if(is.null(input$County)) {
-      whList1 <- tracked_warehouses |> 
-        st_set_geometry(value = NULL) |> 
-        arrange(desc(parcel_area)) |> 
-        mutate(sch_number = paste0("<a href='", ceqa_url, "'>",
-                                    sch_number, "</a>"),
-               acres = round(parcel_area/43560, 0)) |> 
-        select(project3, sch_number, lead_agency_title, acres, county, year_rcvd, document_type,
-               recvd_date) |> 
-        rename(year = year_rcvd,
-               project = project3,
-               date = recvd_date)
-      }
-    else {
-      whList1 <- tracked_warehouses |> 
-        st_set_geometry(value = NULL) |> 
-        filter(county %in% input$County) |> 
-        arrange(desc(parcel_area)) |> 
-        mutate(sch_number = paste0("<a href='", ceqa_url, "'>",
-                                   sch_number, "</a>"),
-               acres = round(parcel_area/43560, 0)) |> 
-        select(project3, sch_number, lead_agency_title, acres, county, 
-               year_rcvd, document_type, recvd_date) |> 
-        rename(year = year_rcvd,
-               project = project3,
-               date = recvd_date)
-    }
+    whList1 <- tracked_warehouses |> 
+      st_set_geometry(value = NULL) |> 
+      arrange(desc(parcel_area)) |> 
+      mutate(sch_number = paste0("<a href='", ceqa_url, "'>",
+        sch_number, "</a>"),
+        acres = round(parcel_area/43560, 0)) |> 
+      select(project3, sch_number, lead_agency_title, acres, county, 
+        year_rcvd, document_type, recvd_date) |> 
+      rename(year = year_rcvd,
+        project = project3,
+        date = recvd_date) |> 
+      filter(county %in% countyList())
+    
     return(whList1)
+  
   })
     
-  myDTmodServer('trackedWH', whList()) 
+  #myDTmodServer('trackedWH', whList()) 
+  
+  output$trackedWH <- renderDT(
+    datatable(whList(),
+              callback = JS("$.fn.dataTable.ext.errMode = 'none';"),
+              rownames = FALSE,
+              escape = FALSE,
+              options = list(dom = 'Btp',
+                             buttons = list( 
+                               list(extend = 'csv', filename = 'table'))#,
+                             #          list(extend = 'excel', filename =  paste(ns('table'), sep = "-")))
+              ),
+              extensions = c('Buttons'),
+              filter = list(position = 'top', clear = FALSE)
+    )
+  )
   
   countyPoly <- reactive({
     # Select County Polygons
@@ -203,7 +214,37 @@ server <- function(input, output) {
         lat2 = bbox()[4]
       )
   }) 
-    
+  
+  output$test <- renderText({countyList()})
+  
+  summaryStats <- reactive({
+    req(whList())
+    stats <- county_stats |> 
+      filter(county %in% countyList()) |> 
+      select(county, count, acres, sum_area) |>
+      group_by(county) |> 
+      summarize(count.Projects = sum(count),
+                Acres = sum(acres),
+                Project.Area.SQFT = round(sum(sum_area), -3),
+                .groups = 'drop'
+      ) |> 
+      left_join(county_pop, by = c('county')) |> 
+      select(-pop2023, -pctChange) |> 
+      mutate(Warehouse.SQFT.per.capita = round(Project.Area.SQFT/pop2024, 1)) |> 
+      rename(population.2024 = pop2024) |> 
+      arrange(desc(Warehouse.SQFT.per.capita))
+  })
+  
+  output$summaryTbl <- renderDT(
+    datatable(summaryStats(),
+              rownames = FALSE,
+              options = list(lengthChange = FALSE,
+                             dom = 'Btp'),
+              caption = 'Table of summary statistics for counties'
+    )
+  )
+  
+  
   
 }
 
