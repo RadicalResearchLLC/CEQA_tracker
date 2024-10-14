@@ -1,7 +1,7 @@
 ##State Warehouse Tracker
 ##Created by Mike McCarthy, Radical Research LLC
 ##First created June 2024
-##Last modified July 2024
+##Last modified September 2024
 ##This script is intended to be the evergreen CEQA tracking app
 ## (1) Key info should be the list of CEQA Projects that are warehouses
 ## (2) Spatial Polygons
@@ -14,6 +14,8 @@ library(sf)
 library(leaflet)
 library(tidyverse)
 
+CEQA_dir <- 'C:/Dev/CEQA_Tracker/CEQA_docs/'
+
 plannedWH <- sf::st_read('https://github.com/RadicalResearchLLC/CEQA_tracker/raw/main/CEQA_WH.geojson') |> 
   st_transform(crs = 4326) |> 
   filter(project %ni% c('South Perris Industrial Project',
@@ -21,52 +23,8 @@ plannedWH <- sf::st_read('https://github.com/RadicalResearchLLC/CEQA_tracker/raw
                         'The Oasis at Indio Project')) |> 
   filter(!is.na(sch_number))
 
-##FIXME - is there a way to auto-authenticate?
-#CentralValleyPlanned <- read_sheet('https://docs.google.com/spreadsheets/d/1Dw-HLvt5AzTY8or3ZFiDdlXX5Xv1u-ASD9t-153FwNc/edit#gid=0',
- #                                  sheet = 'WarehouseCoordinates') |>  
-#  select(1:3) |> 
-  # rename(lng = longitude, lat = latitude) %>% 
-#  filter(!is.na(lng)) |> 
-#  filter(!is.na(lat)) |> 
-#  filter(ProjectName != 'Administrative Use Permit No. PA-2300022') |> 
-#  filter(ProjectName != 'Tracy Costco Depot Annex Project')
-
-#CEQA_WH <- CentralValleyPlanned %>%
-#  st_as_sf(coords = c('lng', 'lat'), crs = 4326) %>%
-#  group_by(ProjectName) %>%
-#  summarise(geom = st_combine(geometry)) %>%
-#  st_cast("POLYGON")
-
-#leaflet() |> 
-#  addProviderTiles(provider = providers$CartoDB.Positron) #|> 
-#  addPolygons(data = CEQA_WH,
-#              color = 'black',
-#              fillOpacity = 0.6,
-#              weight = 1,
-#              label = ~ProjectName)
-
-#Central_WH_tracked <- read_sheet('https://docs.google.com/spreadsheets/d/1Dw-HLvt5AzTY8or3ZFiDdlXX5Xv1u-ASD9t-153FwNc/edit#gid=0',
-#  sheet = 'PlannedCentralWarehouses') |> 
-#  janitor::clean_names() |> 
-#  select(project_name, sch_number, url_to_ceqa, size_sq_ft,
-#         category, stage_pending_approved) |> 
-#  rename(project = project_name, ceqa_url = url_to_ceqa)
-
-## Don't need this?
-
-#centralPlanning <- CEQA_WH |> 
-#3  left_join(Central_WH_tracked, by = c('ProjectName' = 'project')) |> 
-#  filter(!is.na(sch_number)) |> 
-#  rename(project = ProjectName) |> 
-#  select(1, 4, 3, 7, 6, 5, 2) |> 
-#  select(-size_sq_ft)
 
 sf_use_s2(FALSE)
-#areaM2 <- as.numeric(st_area(centralPlanning))
-
-#centralPlanning$parcel_area <- areaM2*10.7639
-
-#st_geometry(centralPlanning) <- 'geometry'
 
 ## Built SoCal warehouses - SCH list - need to map to APNs
 builtWH_list1 <- c(2022030012, 2020090441, 2015081081,
@@ -91,7 +49,21 @@ built_WH_june2024 <- sf::st_read('built_listJune2024.geojson') |>
 #  filter(sch_number %in% builtWH_list)
 #warehouses <- sf::st_read(dsn = wh_url) 
 
-mostRecentCEQAList <- 'C:/Dev/CEQA_Tracker/CEQA Documents073024.csv'
+mostRecentCEQAList <- str_c(CEQA_dir, 'CEQA_industrial_101424.csv')
+
+industrial_projects <- read_csv(mostRecentCEQAList) |>   
+  janitor::clean_names() |> 
+  dplyr::select(sch_number, lead_agency_name, lead_agency_title,
+    project_title, received, document_portal_url, counties, cities,
+    document_type) |> 
+  mutate(recvd_date = lubridate::mdy(received))
+
+industrial_most_recent <- industrial_projects |> 
+  group_by(sch_number) |> 
+  summarize(recvd_date = max(recvd_date)) |> 
+  left_join(industrial_projects) |> 
+  filter(document_portal_url != 'https://ceqanet.opr.ca.gov/2017121007/4')
+
 source('C:/Dev/CEQA_Tracker/new_warehouses_list.R')
 
 planned_list4antiJoin <- plannedWH |> 
@@ -271,42 +243,53 @@ CA_stats <- county_stats2 |>
   summarize(count = sum(countAll),
             acres = sum(acresAll)) |> 
   mutate(totalPop = 39128162) |> 
-  mutate(WH_SF_per_capita = round(acres*43560/totalPop, 1))
+  mutate(WH_SF_per_capita = round(acres*43560/totalPop, 1),
+         Acres_per_county = round(acres/58, 0)) 
 
 ggplot() +
   geom_col(data = county_stats, aes(x = acres, y = reorder(county, acresAll), 
                                     fill = document_type_bins)) +
   theme_bw() +
-  labs(x = 'Warehouse area (Acres)', y = '', title = 'CEQA warehouse projects 2020-2024',
-       fill = 
-       'CEQA document',
-       caption = 'Project data from CEQANET - Jan 1, 2020 - July 30, 2024') +
+  labs(x = 'New/Proposed Warehouse area (Acres)', y = '', title = 'Acreage of CEQA warehouse projects 2020-2024',
+       fill = 'CEQA document',
+       caption = str_c('Project data from CEQANET through ', Sys.Date())
+       ) +
   scale_fill_manual(values = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
                     breaks = c('MND', 'EIR', 'NOP', 'FIN', 'Other')
                     ) +
-  annotate('text', x = 2500, y = 7, label = 'Median - 10 acres', color = 'blue') +
-  annotate('text', x = 2500, y = 10, label = 'Mean - 545 acres') +
-  geom_vline(xintercept = 545, color = 'grey20', linetype = 'twodash')
-ggsave('CEQA_warehouses.png', dpi = 300)
+  #annotate('text', x = 2500, y = 7, label = 'Median - 10 acres', color = 'blue') +
+  annotate('text', x = 3300, y = 10, label = str_c('Mean - ', CA_stats$Acres_per_county,
+                                                   ' acres')) +
+  geom_vline(xintercept = CA_stats$Acres_per_county, color = 'grey20', linetype = 'twodash') + 
+  scale_x_continuous(label = scales::comma_format(),
+                     breaks = c(0, 2000, 4000, 6000, 8000, 10000, 12000))
+
+month_day <- str_c(lubridate::month(Sys.Date()), '_',
+                   lubridate::day(Sys.Date())
+)
+
+ggsave(str_c('CEQA_warehouses', month_day, '.png'), dpi = 300)
 
 ggplot() +
   geom_col(data = county_stats, aes(x = WH_SF_per_capita, 
     y = reorder(county, WH_SF_per_capitaAll), 
     fill = document_type_bins)) +
   theme_bw() +
-  labs(x = 'Additional Warehouse SQ FT per capita', y = '', title = 'CEQA warehouse projects 2020-2024',
-       caption = 'Warehouse data from CEQANET through July 30, 2024
-       Population from CA DoF Table E-1',
+  labs(x = 'Additional Warehouse SQ FT per capita', y = '', title = 'CEQA warehouse project 2020-2024 SQ FT per resident',
+       caption = str_c('Warehouse data from CEQANET through ', Sys.Date(), '\n',
+       'Population from CA DoF Table E-1'),
        fill = 
          'CEQA document') +
   scale_fill_manual(values = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
                    breaks = c('MND', 'EIR', 'NOP', 'FIN', 'Other')
   ) +
-  annotate('text', x = 90, y = 7, label = 'Median - 1 SQ FT per capita', color = 'blue') +
-  annotate('text', x = 90, y = 10, label = 'Mean - 35 SQ FT per capita', color = 'black') +
-  geom_vline(xintercept = 35, color = 'grey20', linetype = 'twodash')
+  #annotate('text', x = 90, y = 7, label = 'Median - 1 SQ FT per capita', color = 'blue') +
+  annotate('text', x = 110, y = 10, 
+           label = str_c('Mean - ', CA_stats$WH_SF_per_capita, ' SQ FT per capita'), 
+           color = 'black') +
+  geom_vline(xintercept = CA_stats$WH_SF_per_capita, color = 'grey20', linetype = 'twodash')
 
-ggsave('CEQA_per_capita.png')
+ggsave(str_c('CEQA_per_capita',  month_day, '.png'), dpi = 300)
 
 rm(ls =  newWH_list, newWH7, tmp,
    county_stats1, county_stats2, industrial_most_recent,
@@ -329,6 +312,9 @@ tracked_warehouses <- tracked_warehouses |>
   distinct() |> 
   st_make_valid()
   
+#source('BuiltWH_intersect.R')
+##FIXME in Warehouse CITY not here
+
 unlink('CEQA_WH.geojson')
 sf::st_write(tracked_warehouses, 'CEQA_WH.geojson')
 

@@ -7,9 +7,9 @@ library(tidyverse)
 library(sf)
 
 #header stuff
-deploy_date <- 'August 30, 2024.'
-version <- 'CEQA Warehouse Tracker Dashboard alpha v0.3, last updated'
-data_download_date <- 'CEQA Industrial data downloaded August 30, 2024'
+deploy_date <- 'October 14, 2024.'
+version <- 'CEQA Warehouse Tracker Dashboard alpha v0.4, last updated'
+data_download_date <- 'CEQA Industrial data downloaded October 14, 2024'
 
 sf_use_s2(FALSE)
 
