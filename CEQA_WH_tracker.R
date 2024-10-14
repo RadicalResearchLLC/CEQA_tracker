@@ -36,11 +36,12 @@ builtWH_list1 <- c(2022030012, 2020090441, 2015081081,
                   2021020421
 )
 
-built_WH_june2024 <- sf::st_read('built_listJune2024.geojson') |> 
-  select(apn) |> 
-  st_set_geometry(value = NULL) |> 
-  distinct() |> 
-  mutate(category2 = 'Built')
+##FIXME - not going to include this
+#built_WH_june2024 <- sf::st_read('built_listJune2024.geojson') |> 
+#  select(apn) |> 
+#  st_set_geometry(value = NULL) |> 
+#  distinct() |> 
+#  mutate(category2 = 'Built')
 
 #wh_url <- 'https://raw.githubusercontent.com/RadicalResearchLLC/WarehouseMap/main/WarehouseCITY/geoJSON/comboFinal.geojson'
 #approved_warehouses <- sf::st_read(dsn = wh_url) |> 
@@ -192,8 +193,8 @@ anomaly_projects <- tracked_warehouses3 |>
 tracked_warehouses4 <- tracked_warehouses3 |> 
   filter(!is.na(recvd_date)) |> 
   bind_rows(anomaly_projects) |> 
-  left_join(built_WH_june2024, by = c('project' = 'apn')) |> 
-  mutate(category = ifelse(is.na(category2), category, category2)) |> 
+ #left_join(built_WH_june2024, by = c('project' = 'apn')) |> 
+#  mutate(category = ifelse(is.na(category2), category, category2)) |> 
   mutate(document_type_bins = case_when(
     document_type == 'ADM' ~ 'Other',
     document_type == 'NEG' ~ 'Other',
@@ -206,8 +207,7 @@ tracked_warehouses4 <- tracked_warehouses3 |>
     document_type == 'SBE' ~'Other',
     TRUE ~ document_type
     )
-  ) |> 
-  select(-category2)
+  )
 
 tracked_centroids <- st_centroid(tracked_warehouses4) |> 
   st_intersection(CA_counties) |> 
@@ -305,15 +305,21 @@ wd <- getwd()
 write.csv(project_names, 'project_names.csv')
 clean_names <- read_csv('project_names.csv', locale = readr::locale(encoding = 'latin1')) |> 
   select(sch_number, project) |> 
-  rename(project3 = project)
+  rename(project3 = project) |> 
+  mutate(project3 = case_when(
+    sch_number == '2024071016' ~ 'Menifee Business Park',
+    sch_number == '2024030521' ~ 'Gallo Glass Company, PLN2023-0166', 
+    sch_number == '2020080354' ~ 'Roseville 80, PLN19-0363',
+    TRUE ~ project3)
+    )
 
 tracked_warehouses <- tracked_warehouses |> 
   left_join(clean_names, by = c('sch_number')) |> 
+  #select(project)
   distinct() |> 
   st_make_valid()
-  
-#source('BuiltWH_intersect.R')
-##FIXME in Warehouse CITY not here
+##FIXME - Note that project is including non UTF-8 characters that aren't being fixed 
+## Always use project3
 
 unlink('CEQA_WH.geojson')
 sf::st_write(tracked_warehouses, 'CEQA_WH.geojson')
