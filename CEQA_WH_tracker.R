@@ -315,7 +315,8 @@ clean_names <- read_csv('project_names.csv', locale = readr::locale(encoding = '
 
 tracked_warehouses <- tracked_warehouses |> 
   left_join(clean_names, by = c('sch_number')) |> 
-  #select(project)
+  select(-project) |> 
+  rename(project = project3) |> 
   distinct() |> 
   st_make_valid()
 ##FIXME - Note that project is including non UTF-8 characters that aren't being fixed 
