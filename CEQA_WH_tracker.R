@@ -20,9 +20,11 @@ plannedWH <- sf::st_read('https://github.com/RadicalResearchLLC/CEQA_tracker/raw
   st_transform(crs = 4326) |> 
   filter(project %ni% c('South Perris Industrial Project',
                         'Northern Gateway Commerce Center',
-                        'The Oasis at Indio Project')) |> 
-  filter(!is.na(sch_number))
-
+                        'The Oasis at Indio Project'#,
+                       # 'Tracy Northeast Business Park Project')
+                       )) |> 
+  filter(!is.na(sch_number)) #|> 
+ # filter(sch_number != '2025010343')
 
 sf_use_s2(FALSE)
 
@@ -36,20 +38,7 @@ builtWH_list1 <- c(2022030012, 2020090441, 2015081081,
                   2021020421
 )
 
-##FIXME - not going to include this
-#built_WH_june2024 <- sf::st_read('built_listJune2024.geojson') |> 
-#  select(apn) |> 
-#  st_set_geometry(value = NULL) |> 
-#  distinct() |> 
-#  mutate(category2 = 'Built')
-
-#wh_url <- 'https://raw.githubusercontent.com/RadicalResearchLLC/WarehouseMap/main/WarehouseCITY/geoJSON/comboFinal.geojson'
-#approved_warehouses <- sf::st_read(dsn = wh_url) |> 
-#  filter(category == 'Approved') |> 
-#  mutate(sch_number = str_sub(class, str_length(class)-9, str_length(class))) #|> 
-#  filter(sch_number %in% builtWH_list)
-#warehouses <- sf::st_read(dsn = wh_url) 
-
+#
 ##FIXME
 mostRecentCEQAList <- str_c(CEQA_dir, 'CEQA_industrial_2019_011125.csv')
 
@@ -88,7 +77,31 @@ antiJoinList <- newWH7 |>
   mutate(year_rcvd = lubridate::year(recvd_date)) 
 
 names(antiJoinList)
+
 ##FIXME - add error handling for no new warehouses?
+
+#antiJoinList3 <- sf::st_read('C:/Dev/CEQA_Tracker/wh_geojson/2025010343.geojson') |> 
+#  mutate(year_rcvd = 2025,
+#         lead_agency_title = 'City of Tracy',
+#         document_type = 'NOP',
+#         stage_pending_approved = 'NOP',
+#         recvd_date = as.Date('2025-01-03'),
+#         category = 'CEQA Review')
+
+antiJoinList2 <- antiJoinList |> 
+  filter(sch_number != 1989032707) #|> 
+  #mutate(project = 'Green Valley Specific Plan',
+  #       ceqa_url = 'https://ceqanet.opr.ca.gov/1989032707/',
+  #       sch_number = 1989032707,
+  #       recvd_date = as.Date('1989-03-27'),
+  #       document_type = 'NOD',
+  #       category = 'Approved',
+  #       stage_pending_approved = 'Approved',
+  #       lead_agency_title = 'City of Perris') |> 
+#  bind_rows(antiJoinList3) |> 
+  #select(-category)
+names(antiJoinList2)
+
 
 # Fix missing CEQA info
 plannedWH_noCEQA <- plannedWH |> 
@@ -114,7 +127,7 @@ tracked_warehouses2 <- plannedWH2 |>
   select(project, ceqa_url, sch_number, parcel_area,
     recvd_date, document_type, category,
     stage_pending_approved, lead_agency_title, geometry) |>
-  bind_rows(antiJoinList) |> 
+  bind_rows(antiJoinList2) |> 
   mutate(year_rcvd = lubridate::year(recvd_date)) |> 
   mutate(year_rcvd = ifelse(year_rcvd < 2018, 2018, year_rcvd))
 
@@ -363,6 +376,7 @@ tracked_warehouses |>
 ggsave('warehouses_by_yr.png')
 
 setwd(str_c(wd, '/CEQA_Tracker'))
-save.image('.RData')
+getwd()
+save.image('.Rdata')
 setwd(wd)
 
