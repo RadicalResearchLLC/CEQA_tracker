@@ -7,9 +7,9 @@ library(tidyverse)
 library(sf)
 
 #header stuff
-deploy_date <- 'October 14, 2024.'
-version <- 'CEQA Warehouse Tracker Dashboard alpha v0.4, last updated'
-data_download_date <- 'CEQA Industrial data downloaded October 14, 2024'
+deploy_date <- 'February 5, 2025.'
+version <- 'CEQA Warehouse Tracker Dashboard alpha v0.5, last updated'
+data_download_date <- 'CEQA Industrial data downloaded February 4, 2025'
 
 sf_use_s2(FALSE)
 
@@ -31,7 +31,7 @@ ui <- navbarPage(
         choices = c('', sort(unique(tracked_warehouses$county))), 
         options = list(maxItems = 8)),
       selectizeInput(inputId = 'Project', label = 'Search by project name',
-        choices = c('No Warehouse Selected', tracked_warehouses$project3),
+        choices = c('No Warehouse Selected', tracked_warehouses$project),
         options = list(maxItems = 1)
         )#,
      # verbatimTextOutput('test')
@@ -135,10 +135,10 @@ server <- function(input, output) {
       mutate(sch_number = paste0("<a href='", ceqa_url, "'>",
         sch_number, "</a>"),
         acres = round(parcel_area/43560, 0)) |> 
-      select(project3, sch_number, lead_agency_title, acres, county, 
+      select(project, sch_number, lead_agency_title, acres, county, 
         year_rcvd, document_type, recvd_date) |> 
       rename(year = year_rcvd,
-        project = project3,
+       # project = project3,
         date = recvd_date) |> 
       filter(county %in% countyList())
     
@@ -177,7 +177,7 @@ server <- function(input, output) {
   
   whSelect <- reactive({
     selectedWH <- tracked_warehouses |> 
-        filter(project3 %in% input$Project) 
+        filter(project %in% input$Project) 
   
     return(selectedWH)
   })
