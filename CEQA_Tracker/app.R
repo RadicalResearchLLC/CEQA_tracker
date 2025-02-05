@@ -45,10 +45,10 @@ ui <- navbarPage(
         plotOutput('County_SQFT', width = 500), 
         plotOutput('County_perCapita', width = 500)
         ),
-      h5('Version and Deployment info'),
+      h5(),
       div(
         p(paste(version, deploy_date, data_download_date)),
-        style = 'font-size:80%; margin-top:-10px'
+        style = 'font-size:80%'
       )
   )
 )
@@ -102,7 +102,8 @@ server <- function(input, output) {
     ggplot() +
       geom_col(data = county_stats, aes(x = acres, y = reorder(county, acresAll), fill = document_type_bins)) +
       theme_bw() +
-      labs(x = 'Acres', y = '', title = 'CEQA warehouse projects 2020-2024 - Acres') +
+      labs(x = 'Acres', y = '', title = 'CEQA warehouse projects 2020-2024 - Acres',
+           fill = 'CEQA Category') +
       scale_fill_manual(values = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
                         breaks = c('MND', 'EIR', 'NOP', 'FIN', 'Other')
       )
@@ -114,7 +115,8 @@ server <- function(input, output) {
       theme_bw() +
       labs(x = 'Additional Warehouse SQ FT per capita', y = '', title = 'CEQA warehouse projects 2020-2024 per Capita',
            caption = 'Warehouse data from CEQANET
-       Population from CA DoF Table E-1') +
+       Population from CA DoF Table E-1',
+           fill = 'CEQA category') +
       scale_fill_manual(values = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
                         breaks = c('MND', 'EIR', 'NOP', 'FIN', 'Other')
       )

@@ -1,7 +1,7 @@
 ##State Warehouse Tracker
 ##Created by Mike McCarthy, Radical Research LLC
 ##First created June 2024
-##Last modified September 2024
+##Last modified January 2025
 ##This script is intended to be the evergreen CEQA tracking app
 ## (1) Key info should be the list of CEQA Projects that are warehouses
 ## (2) Spatial Polygons
@@ -50,7 +50,8 @@ builtWH_list1 <- c(2022030012, 2020090441, 2015081081,
 #  filter(sch_number %in% builtWH_list)
 #warehouses <- sf::st_read(dsn = wh_url) 
 
-mostRecentCEQAList <- str_c(CEQA_dir, 'CEQA_industrial_101424.csv')
+##FIXME
+mostRecentCEQAList <- str_c(CEQA_dir, 'CEQA_industrial_2019_011125.csv')
 
 industrial_projects <- read_csv(mostRecentCEQAList) |>   
   janitor::clean_names() |> 
@@ -66,6 +67,8 @@ industrial_most_recent <- industrial_projects |>
   filter(document_portal_url != 'https://ceqanet.opr.ca.gov/2017121007/4')
 
 source('C:/Dev/CEQA_Tracker/new_warehouses_list.R')
+
+## PAUSE HERE for googlesheets Authentication
 
 planned_list4antiJoin <- plannedWH |> 
   select(sch_number) |> 
@@ -122,10 +125,18 @@ distinct_SCH <- tracked_warehouses2 |>
   summarize(count = n())
 
 #Import county shapefile
-CA_counties <- sf::st_read(dsn = 'C:/Dev/CA_spatial_data/CA_counties') |> 
+###FIXME 
+##Currently tigris is broken due to Trump
+#CA_counties <- tigris::counties(state = 'CA', cb = T, year = 2023) |> 
+#  st_transform(crs = 4326) |> 
+#  select(NAME) |> 
+#  rename(county = NAME)
+
+CA_counties <- arcgislayers::arc_read('https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/5',
+                                      where = "STATE = '06'") |> 
   st_transform(crs = 4326) |> 
-  select(NAME) |> 
-  rename(county = NAME)
+  select(BASENAME) |> 
+  rename(county = BASENAME)
 
 #Import population data
 county_pop <- readxl::read_excel('E-1_2024.xlsx', sheet = 'E-1 CountyState2024', skip = 5)
@@ -190,9 +201,12 @@ anomaly_projects <- tracked_warehouses3 |>
            project == 'The HUB Industrial Development' ~ 'NOD'
          )) 
 
+resubmittedWHList <- ('https://ceqanet.opr.ca.gov/2023100642')
+
 tracked_warehouses4 <- tracked_warehouses3 |> 
   filter(!is.na(recvd_date)) |> 
   bind_rows(anomaly_projects) |> 
+  filter(ceqa_url %ni% resubmittedWHList)|> 
  #left_join(built_WH_june2024, by = c('project' = 'apn')) |> 
 #  mutate(category = ifelse(is.na(category2), category, category2)) |> 
   mutate(document_type_bins = case_when(
@@ -328,6 +342,25 @@ sf::st_write(tracked_warehouses, 'CEQA_WH.geojson')
 rm(ls = anomaly_projects, antiJoinList, built_WH_june2024, clean_names, county_counts)
 rm(ls = distinct_SCH, planned_list4antiJoin, plannedWH2, project_names, tempsf)
 rm(ls = types, plannedWH_noCEQA, wh_Y_list, wh_missing_list, Y_N_WH)
+
+tracked_warehouses |> 
+  st_set_geometry(value = NULL) |> 
+  filter(!is.na(year_rcvd)) |> 
+  filter(year_rcvd > 2020) |> 
+  ggplot() +
+  geom_col(aes(x = parcel_area, 
+               y = as.factor(year_rcvd), 
+              fill = document_type_bins)) +
+  theme_bw() +
+  labs(x = 'Warehouse area (sq.ft.)',
+       y = 'Year',
+       fill = 'CEQA type',
+       caption = 'Project data from CEQANET through January 11, 2025')  +
+  scale_fill_manual(values = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
+                   breaks = c('MND', 'EIR', 'NOP', 'FIN', 'Other')) +
+  scale_x_continuous(labels = scales::comma_format())
+
+ggsave('warehouses_by_yr.png')
 
 setwd(str_c(wd, '/CEQA_Tracker'))
 save.image('.RData')
