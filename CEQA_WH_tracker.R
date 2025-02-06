@@ -115,6 +115,9 @@ plannedWH_noCEQA <- plannedWH |>
            stage_pending_approved = document_type) |> 
   rename(ceqa_url = document_portal_url)
 
+## update CEQA info
+
+
 names(plannedWH)
 names(plannedWH_noCEQA)
 
@@ -122,14 +125,20 @@ plannedWH2 <- plannedWH |>
   filter(!is.na(recvd_date)) |> 
   bind_rows(plannedWH_noCEQA)
 
-tracked_warehouses2 <- plannedWH2 |> 
-  left_join(industrial_most_recent) |> 
+industrial_recent_narrow <- industrial_most_recent |> 
+  select(sch_number, recvd_date, document_type) |> 
+  rename(document_type_recent = document_type)
+
+tracked_warehouses_no_change <- plannedWH2 |> 
+  full_join(industrial_recent_narrow, by = c('sch_number', 'recvd_date')) |> 
   select(project, ceqa_url, sch_number, parcel_area,
     recvd_date, document_type, category,
     stage_pending_approved, lead_agency_title, geometry) |>
   bind_rows(antiJoinList2) |> 
   mutate(year_rcvd = lubridate::year(recvd_date)) |> 
   mutate(year_rcvd = ifelse(year_rcvd < 2018, 2018, year_rcvd))
+  
+  
 
 distinct_SCH <- tracked_warehouses2 |> 
   select(sch_number) |> 
