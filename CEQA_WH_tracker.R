@@ -1,7 +1,7 @@
 ##State Warehouse Tracker
 ##Created by Mike McCarthy, Radical Research LLC
 ##First created June 2024
-##Last modified January 2025
+##Last modified June 2025
 ##This script is intended to be the evergreen CEQA tracking app
 ## (1) Key info should be the list of CEQA Projects that are warehouses
 ## (2) Spatial Polygons
@@ -13,40 +13,26 @@ library(googlesheets4)
 library(sf)
 library(leaflet)
 library(tidyverse)
-
-CEQA_dir <- 'C:/Dev/CEQA_Tracker/CEQA_docs/'
-
-plannedWH <- sf::st_read('https://github.com/RadicalResearchLLC/CEQA_tracker/raw/main/CEQA_WH.geojson') |> 
-  st_transform(crs = 4326) |> 
-  filter(project %ni% c('South Perris Industrial Project',
-                        'Northern Gateway Commerce Center',
-                        'The Oasis at Indio Project'#,
-                       # 'Tracy Northeast Business Park Project')
-                       )) |> 
-  filter(!is.na(sch_number)) #|> 
- # filter(sch_number != '2025010343')
+library(tigris)
 
 sf_use_s2(FALSE)
 
-## Built SoCal warehouses - SCH list - need to map to APNs
-builtWH_list1 <- c(2022030012, 2020090441, 2015081081,
-                  2020050079, 2020049052, 2014011009,
-                  2020019017, 2022110076, 2022060066,
-                  2022040166, 2021090555, 2021020280,
-                  2021010163, 2020040155, 2019070040,
-                  2020059021, 2022020501, 2020059013,
-                  2021020421
-)
+wd <- 'C:/Dev/CEQA_Tracker/'
+CEQA_dir <- 'C:/Dev/CEQA_Tracker/CEQA_docs/'
 
-#
-##FIXME
-mostRecentCEQAList <- str_c(CEQA_dir, 'CEQA_industrial_2019_011125.csv')
+## Start with CEQA tracked warehouses since 2019
 
-industrial_projects <- read_csv(mostRecentCEQAList) |>   
+##find most recent CEQA documents file
+ceqa_docs <- file.info(list.files(CEQA_dir, full.names =T)) #file names
+most_recent_doc <- rownames(ceqa_docs)[which.max(ceqa_docs$mtime)] #pull out most recent save
+
+#list of CEQA industrial projects
+##Includes non-warehouses
+industrial_projects <- read_csv(most_recent_doc) |>   
   janitor::clean_names() |> 
   dplyr::select(sch_number, lead_agency_name, lead_agency_title,
-    project_title, received, document_portal_url, counties, cities,
-    document_type) |> 
+                project_title, received, document_portal_url, counties, cities,
+                document_type) |> 
   mutate(recvd_date = lubridate::mdy(received))
 
 industrial_most_recent <- industrial_projects |> 
@@ -55,7 +41,92 @@ industrial_most_recent <- industrial_projects |>
   left_join(industrial_projects) |> 
   filter(document_portal_url != 'https://ceqanet.opr.ca.gov/2017121007/4')
 
+# NOD Processing script
+source('Process_NODs.R')
+
+#this script reads in all warehouse geojson files
+#it also reads in Y_N_WH list and checks for warehouse projects
+#From sheets central valley and Y_N_WH list
+#Use wh_Y_list moving forward
 source('C:/Dev/CEQA_Tracker/new_warehouses_list.R')
+
+rm(ls = tempsf, tmp, ceqa_docs)
+##Last published plannedWH dataset
+plannedWH <- sf::st_read('https://github.com/RadicalResearchLLC/CEQA_tracker/raw/main/CEQA_WH.geojson') |> 
+  st_transform(crs = 4326) |> 
+  ## FIXME - why are these projects filtered out?
+  filter(project %ni% c('South Perris Industrial Project',
+                        'Northern Gateway Commerce Center',
+                        'The Oasis at Indio Project'#,
+                       # 'Tracy Northeast Business Park Project') 
+                       )) |> 
+  filter(!is.na(sch_number)) #|> 
+ # filter(sch_number != '2025010343')
+# select CEQA industrial warehouses with core info
+recent_industrial_CEQA_WH <- wh_Y_list |> 
+  select(sch_number, project, ceqa_url, recvd_date, document_type, Notes) |> 
+  mutate(recvd_date = as.Date(recvd_date))
+
+tidy_NODs4_join <- industrial_NODs |> 
+  select(sch_number, date1) |> 
+  group_by(sch_number) |>
+  summarize(NOD_date = min(date1)) |> 
+  mutate(document_type = 'NOD') |> 
+  rename(NOD_type = document_type) 
+
+## join CEQA_WH_w_NODs
+## identify stage - NODs required after 2024 under SB 69
+## NODs are available with county clerk after 11/3/2020 but before 1/1/2024
+recent_CEQA_WH_w_NODs <- recent_industrial_CEQA_WH |> 
+  left_join(tidy_NODs4_join) |> 
+  mutate(recvd_date2 = as.Date(ifelse(is.na(NOD_type),recvd_date, NOD_date)),
+         document_type2 = ifelse(is.na(NOD_type), document_type, NOD_type)) |> 
+  select(sch_number, project, ceqa_url, recvd_date2, document_type2, Notes) |> 
+  rename(recvd_date = recvd_date2, document_type = document_type2) |> 
+  mutate(stage_pending_approved = case_when(
+    document_type %in% c('NOD', 'ADM', 'NEG', 'SBE', 'SIR') ~ 'Approved',
+    document_type %in% c('FIN', 'MND') & recvd_date < mdy('01-01-2024') ~ 'Approved',
+    TRUE ~ document_type
+  ))
+
+rm(ls = industrial_projects, industrial_most_recent)
+
+## This pulls the old process of polygons pre-June 2024 and CEQA Tracker process
+source('ProcessOldPolygons.R')
+
+##FIXME - don't think I need these
+#wh_list_not_in_plannedWH <- plannedWH |> 
+#  select(sch_number, project) |> 
+#  anti_join(recent_CEQA_WH_w_NODs, by = 'sch_number') 
+
+#wh_list_not_inCEQA <- recent_CEQA_WH_w_NODs |> 
+#  anti_join(plannedWH, by = 'sch_number')
+
+#pre2020_projects <- wh_list_not_inCEQA |> 
+#  filter(sch_number < 2020000000)
+
+names(newWH7)
+
+newWH <- newWH7 |> 
+  select(sch_number, geometry) |> 
+  left_join(recent_CEQA_WH_w_NODs, by = 'sch_number')
+
+area <- as.numeric(st_area(newWH))
+
+newWH$parcel_area <- area*10.7639
+
+str(oldWH)
+str(newWH)
+
+OldNewWH <- bind_rows(newWH, oldWH) |> 
+  select(-parcel_area)
+
+rm(ls = ceqa_docs)
+
+narrow_planned <- plannedWH |> 
+  select(sch_number, ceqa_url, parcel_area, county, project, geometry)
+
+sf_use_s2(FALSE)
 
 ## PAUSE HERE for googlesheets Authentication
 
@@ -64,83 +135,73 @@ planned_list4antiJoin <- plannedWH |>
   st_set_geometry(value = NULL) |> 
   distinct() 
 
-names(wh_missing_list)
-#names(newWH_list)
-antiJoinList <- newWH7 |> 
-  #select(sch_number) |>
-  #st_set_geometry(value = NULL) |> 
-  anti_join(planned_list4antiJoin) |>
-  left_join(industrial_most_recent) |> 
-  select(project, ceqa_url, sch_number, parcel_area,
-         recvd_date, document_type, category,
-         stage_pending_approved, lead_agency_title, geometry) |> 
-  mutate(year_rcvd = lubridate::year(recvd_date)) 
+OldNewWH_antiJoin <- OldNewWH |> 
+  select(sch_number) |> 
+  st_set_geometry(value = NULL) |> 
+  distinct() #|> 
 
-names(antiJoinList)
+##Note, these are all Central Valley warehouses from EA018 and EA078 class from 2023
+MissingWHList <-  planned_list4antiJoin |> 
+  anti_join(OldNewWH_antiJoin) |> 
+  left_join(plannedWH) |> 
+  select(sch_number, geometry) |> 
+  left_join(recent_CEQA_WH_w_NODs, by = 'sch_number') |> 
+  filter(!is.na(project))
 
-##FIXME - add error handling for no new warehouses?
+GreenValley <-  planned_list4antiJoin |> 
+  anti_join(OldNewWH_antiJoin) |> 
+  left_join(plannedWH)  |> 
+  filter(sch_number == '1989032707') |> 
+  select(sch_number, project, ceqa_url, recvd_date, document_type, stage_pending_approved, geometry)
 
-#antiJoinList3 <- sf::st_read('C:/Dev/CEQA_Tracker/wh_geojson/2025010343.geojson') |> 
-#  mutate(year_rcvd = 2025,
-#         lead_agency_title = 'City of Tracy',
-#         document_type = 'NOP',
-#         stage_pending_approved = 'NOP',
-#         recvd_date = as.Date('2025-01-03'),
-#         category = 'CEQA Review')
+##Fix missing Warehouses
+OldNewWH2 <- bind_rows(OldNewWH, GreenValley, MissingWHList)
 
-antiJoinList2 <- antiJoinList |> 
-  filter(sch_number != 1989032707) #|> 
-  #mutate(project = 'Green Valley Specific Plan',
-  #       ceqa_url = 'https://ceqanet.opr.ca.gov/1989032707/',
-  #       sch_number = 1989032707,
-  #       recvd_date = as.Date('1989-03-27'),
-  #       document_type = 'NOD',
-  #       category = 'Approved',
-  #       stage_pending_approved = 'Approved',
-  #       lead_agency_title = 'City of Perris') |> 
-#  bind_rows(antiJoinList3) |> 
-  #select(-category)
-names(antiJoinList2)
+##antijoin check2
+planned_list4antiJoin |> 
+  anti_join(OldNewWH2)
 
+##Add BIG Barstow
 
-# Fix missing CEQA info
-plannedWH_noCEQA <- plannedWH |> 
-  filter(is.na(recvd_date)) |> 
-  select(project, sch_number, parcel_area, stage_pending_approved) |> 
-  left_join(industrial_most_recent, by = 'sch_number') |> 
-  select(project, document_portal_url, sch_number, parcel_area, recvd_date, 
-    document_type) |> 
-    mutate(year_rcvd = lubridate::year(recvd_date),
-           category = 'CEQA Review',
-           stage_pending_approved = document_type) |> 
-  rename(ceqa_url = document_portal_url)
-
-## update CEQA info
-
-
-names(plannedWH)
-names(plannedWH_noCEQA)
-
-plannedWH2 <- plannedWH |> 
-  filter(!is.na(recvd_date)) |> 
-  bind_rows(plannedWH_noCEQA)
-
-industrial_recent_narrow <- industrial_most_recent |> 
-  select(sch_number, recvd_date, document_type) |> 
-  rename(document_type_recent = document_type)
-
-tracked_warehouses_no_change <- plannedWH2 |> 
-  full_join(industrial_recent_narrow, by = c('sch_number', 'recvd_date')) |> 
-  select(project, ceqa_url, sch_number, parcel_area,
-    recvd_date, document_type, category,
-    stage_pending_approved, lead_agency_title, geometry) |>
-  bind_rows(antiJoinList2) |> 
-  mutate(year_rcvd = lubridate::year(recvd_date)) |> 
-  mutate(year_rcvd = ifelse(year_rcvd < 2018, 2018, year_rcvd))
+BIG <- sf::st_read(dsn= 'C:/Dev/CEQA_Tracker/OutlierCEQA/Barstow International Gateway.geojson') 
+area2 <- as.numeric(st_area(BIG))
+BIG_ceqa <- read_csv('C:/Dev/CEQA_Tracker/OutlierCEQA/BIG_Ceqanet_info.csv') |> 
+  janitor::clean_names() |>
+  filter(document_type== 'NOP') |> 
+  mutate(recvd_date = lubridate::mdy(received)) |> 
+  select(sch_number, lead_agency_name, lead_agency_title,
+         project_title, received, document_portal_url, counties, cities,
+         document_type, recvd_date) |> 
+  mutate(year_rcvd = lubridate::year(recvd_date),
+         stage_pending_approved = document_type,
+         parcel_area = area2) |> 
+  rename(ceqa_url = document_portal_url) |> 
+  select(sch_number, ceqa_url, parcel_area, recvd_date, document_type,
+         project_title) |> 
+  rename(project = project_title) |> 
+  mutate(stage_pending_approved = 'NOP')
   
-  
+BIG2 <- BIG |> 
+  bind_cols(BIG_ceqa) |> 
+  select(-name)
 
-distinct_SCH <- tracked_warehouses2 |> 
+  ## update CEQA info
+
+names(OldNewWH2)
+names(BIG2)
+
+plannedWH2 <- bind_rows(OldNewWH2, BIG2) |> 
+  mutate(category = ifelse(stage_pending_approved != 'Approved', 'CEQA Review', 'Approved'))
+
+area <- as.numeric(st_area(plannedWH2))
+
+plannedWH2$parcel_area <- round(area*10.7639, -1)
+
+rm(ls = OldNewWH2, BIG2, BIG, oldWH, OldNewWH, OldNewWH_antiJoin)
+rm(ls = newWH, newWH7, newWH_list, BIG_ceqa, GreenValley, MissingWHList)
+## Industrial 
+
+distinct_SCH <- plannedWH2 |> 
   select(sch_number) |> 
   st_set_geometry(value = NULL) |> 
   group_by(sch_number) |> 
@@ -160,177 +221,83 @@ CA_counties <- arcgislayers::arc_read('https://tigerweb.geo.census.gov/arcgis/re
   select(BASENAME) |> 
   rename(county = BASENAME)
 
-#Import population data
-county_pop <- readxl::read_excel('E-1_2024.xlsx', sheet = 'E-1 CountyState2024', skip = 5)
+CA_cities <- places(state = 'CA', cb = T, #pull for California, lower detail level
+                    year = 2024, 
+                    progress_bar = FALSE) |> 
+  st_transform(crs = 4326) |> 
+  select(NAME) |> 
+  rename(city_CDP = NAME)
 
-colnames(county_pop) <- c('county', 'pop2023', 'pop2024', 'pctChange')
+#types <- plannedWH2 |> 
+#  st_set_geometry(value = NULL) |> 
+#  group_by(document_type) |> 
+#  summarize(count = n())
 
+names(plannedWH2)
 
-WHPal <- colorFactor(palette = 'Reds',
-                      domain = tracked_warehouses2$year_rcvd)
+#tracked_warehouses3 <- tracked_warehouses2 |> 
+#  left_join(industrial_most_recent) |> 
+#  select(project, ceqa_url, sch_number, parcel_area, recvd_date, document_type,
+#         stage_pending_approved, year_rcvd, category, lead_agency_title) |> 
+#  mutate(year_rcvd = year(recvd_date)) #|> 
 
-leaflet() |> 
-  addProviderTiles(providers$Esri.WorldImagery, group = 'Imagery') |> 
- # addProviderTiles(providers$OpenRailwayMap, group = 'Rail') |> 
-  addProviderTiles(providers$CartoDB.Positron, group = 'Basemap')  |>
-  addLayersControl(
-    baseGroups = c('Basemap', 'Imagery'),
-    overlayGroups = c('Planned Warehouses'), 
-    options = layersControlOptions(collapsed = FALSE),
-    position = 'topright'
-  ) |> 
-  addPolygons(data = tracked_warehouses2,
-              color = ~WHPal(year_rcvd),
-              weight = 3, 
-              label = ~paste(sch_number, stage_pending_approved),
-              fillOpacity = 0.7
-              ) |> 
-  addLegend(data = tracked_warehouses2, 
-            title = 'Year',
-            pal = WHPal,
-            values = ~year_rcvd,
-            position = 'bottomleft')
-
-types <- tracked_warehouses2 |> 
-  st_set_geometry(value = NULL) |> 
-  group_by(document_type) |> 
-  summarize(count = n())
-
-names(plannedWH)
-rm(ls = Central_WH_tracked, centralPlanning, CentralValleyPlanned,
-   CEQA_WH, plannedWH, areaM2)
-
-tracked_warehouses3 <- tracked_warehouses2 |> 
-  left_join(industrial_most_recent) |> 
-  select(project, ceqa_url, sch_number, parcel_area, recvd_date, document_type,
-         stage_pending_approved, year_rcvd, category, lead_agency_title) |> 
-  mutate(year_rcvd = year(recvd_date)) #|> 
-
-#Fix anomaly projects
-anomaly_projects <- tracked_warehouses3 |> 
-  filter(is.na(recvd_date)) |> 
-  mutate(recvd_date = case_when(
-    project == 'Freedom Business Park' ~ mdy('10/23/2023'),
-    project == 'Oak Valley Town Center' ~ mdy('8/26/2022'),
-    project == 'Project Viento' ~ mdy('2/23/2022'),
-    project == 'The HUB Industrial Development' ~ mdy('1/30/2023')
-  )) |> 
-  mutate(year_rcvd = year(recvd_date),
-         document_type = case_when(
-           project == 'Freedom Business Park' ~ 'NOP',
-           project == 'Oak Valley Town Center' ~ 'NOD',
-           project == 'Project Viento' ~ 'ADM',
-           project == 'The HUB Industrial Development' ~ 'NOD'
-         )) 
+#FIXME anomaly projects - none
+#anomaly_projects <- plannedWH2 |> 
+#  filter(is.na(recvd_date)) #|> 
+#  mutate(recvd_date = case_when(
+#    project == 'Freedom Business Park' ~ mdy('10/23/2023'),
+#    project == 'Oak Valley Town Center' ~ mdy('8/26/2022'),
+#    project == 'Project Viento' ~ mdy('2/23/2022'),
+#    project == 'The HUB Industrial Development' ~ mdy('1/30/2023')
+#  )) |> 
+#  mutate(year_rcvd = year(recvd_date),
+#         document_type = case_when(
+#           project == 'Freedom Business Park' ~ 'NOP',
+#           project == 'Oak Valley Town Center' ~ 'NOD',
+#           project == 'Project Viento' ~ 'ADM',
+#           project == 'The HUB Industrial Development' ~ 'NOD'
+#        )) 
 
 resubmittedWHList <- ('https://ceqanet.opr.ca.gov/2023100642')
 
-tracked_warehouses4 <- tracked_warehouses3 |> 
-  filter(!is.na(recvd_date)) |> 
-  bind_rows(anomaly_projects) |> 
+tracked_warehouses4 <- plannedWH2 |> 
+  #filter(!is.na(recvd_date)) |> 
+  #bind_rows(anomaly_projects) |> 
   filter(ceqa_url %ni% resubmittedWHList)|> 
  #left_join(built_WH_june2024, by = c('project' = 'apn')) |> 
 #  mutate(category = ifelse(is.na(category2), category, category2)) |> 
   mutate(document_type_bins = case_when(
-    document_type == 'ADM' ~ 'Other',
-    document_type == 'NEG' ~ 'Other',
-    document_type == 'NOD' ~ 'Other',
-    document_type == 'NOI' ~ 'Other',
-    document_type == 'RIR' ~ 'Other',
-    document_type == 'RC' ~ 'Other',
-    document_type == 'SIR' ~ 'Other',
-    document_type == 'REV' ~ 'Other',
-    document_type == 'SBE' ~'Other',
-    TRUE ~ document_type
+    stage_pending_approved == 'Approved' ~ 'Approved',
+    stage_pending_approved %in% c('ADM', 'NEG', 'NOD', 'FIN') ~ 'Approved',
+    stage_pending_approved == 'NOI' ~ 'CEQA Review',
+    stage_pending_approved == 'RIR' ~ 'CEQA Review',
+    stage_pending_approved == 'RC' ~ 'CEQA Review',
+    stage_pending_approved == 'SIR' ~ 'CEQA Review',
+    stage_pending_approved == 'REV' ~ 'CEQA Review',
+    stage_pending_approved == 'SBE' ~'CEQA Review',
+    stage_pending_approved %in% c('MND', 'NOP', 'EIR') ~'CEQA Review',
+    TRUE ~ stage_pending_approved
     )
   )
 
-tracked_centroids <- st_centroid(tracked_warehouses4) |> 
+tracked_centroids_county <- st_centroid(tracked_warehouses4) |> 
   st_intersection(CA_counties) |> 
   st_set_geometry(value = NULL) 
 
-tracked_warehouses <- tracked_warehouses4 |> 
-  left_join(tracked_centroids)  |> 
+tracked_centroids_places <- st_centroid(tracked_warehouses4) |> 
+  st_intersection(CA_cities) |> 
+  st_set_geometry(value = NULL)
+
+tracked_warehouses5 <- tracked_warehouses4 |> 
+  left_join(tracked_centroids_county)  |> 
+  left_join(tracked_centroids_places) |> 
   select(-category)
-
-county_counts <- tracked_warehouses |> 
-  select(county, parcel_area) |> 
-  st_set_geometry(value = NULL) |> 
-  group_by(county) |> 
-  summarize(count = n(), area = round(sum(parcel_area)/43560, 0))
- 
-county_stats1<- tracked_centroids |> 
-  group_by(county, document_type_bins) |> 
-  summarize(count = n(), sum_area = sum(parcel_area), .groups = 'drop') |> 
-  mutate(acres = round(sum_area/43560, 0)) |> 
-  left_join(county_pop) |> 
-  select(-pctChange) |> 
-  mutate(WH_SF_per_capita = round(sum_area/pop2024, 1))
-
-county_stats2 <- county_stats1 |> 
-  group_by(county) |> 
-  summarize(countAll = sum(count), acresAll = sum(acres),
-            WH_SF_per_capitaAll = sum(WH_SF_per_capita),
-            .groups = 'drop') 
-
-county_stats <- left_join(county_stats1, county_stats2)
-
-CA_stats <- county_stats2 |> 
-  summarize(count = sum(countAll),
-            acres = sum(acresAll)) |> 
-  mutate(totalPop = 39128162) |> 
-  mutate(WH_SF_per_capita = round(acres*43560/totalPop, 1),
-         Acres_per_county = round(acres/58, 0)) 
-
-ggplot() +
-  geom_col(data = county_stats, aes(x = acres, y = reorder(county, acresAll), 
-                                    fill = document_type_bins)) +
-  theme_bw() +
-  labs(x = 'New/Proposed Warehouse area (Acres)', y = '', title = 'Acreage of CEQA warehouse projects 2020-2024',
-       fill = 'CEQA document',
-       caption = str_c('Project data from CEQANET through ', Sys.Date())
-       ) +
-  scale_fill_manual(values = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
-                    breaks = c('MND', 'EIR', 'NOP', 'FIN', 'Other')
-                    ) +
-  #annotate('text', x = 2500, y = 7, label = 'Median - 10 acres', color = 'blue') +
-  annotate('text', x = 3300, y = 10, label = str_c('Mean - ', CA_stats$Acres_per_county,
-                                                   ' acres')) +
-  geom_vline(xintercept = CA_stats$Acres_per_county, color = 'grey20', linetype = 'twodash') + 
-  scale_x_continuous(label = scales::comma_format(),
-                     breaks = c(0, 2000, 4000, 6000, 8000, 10000, 12000))
-
-month_day <- str_c(lubridate::month(Sys.Date()), '_',
-                   lubridate::day(Sys.Date())
-)
-
-ggsave(str_c('CEQA_warehouses', month_day, '.png'), dpi = 300)
-
-ggplot() +
-  geom_col(data = county_stats, aes(x = WH_SF_per_capita, 
-    y = reorder(county, WH_SF_per_capitaAll), 
-    fill = document_type_bins)) +
-  theme_bw() +
-  labs(x = 'Additional Warehouse SQ FT per capita', y = '', title = 'CEQA warehouse project 2020-2024 SQ FT per resident',
-       caption = str_c('Warehouse data from CEQANET through ', Sys.Date(), '\n',
-       'Population from CA DoF Table E-1'),
-       fill = 
-         'CEQA document') +
-  scale_fill_manual(values = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
-                   breaks = c('MND', 'EIR', 'NOP', 'FIN', 'Other')
-  ) +
-  #annotate('text', x = 90, y = 7, label = 'Median - 1 SQ FT per capita', color = 'blue') +
-  annotate('text', x = 110, y = 10, 
-           label = str_c('Mean - ', CA_stats$WH_SF_per_capita, ' SQ FT per capita'), 
-           color = 'black') +
-  geom_vline(xintercept = CA_stats$WH_SF_per_capita, color = 'grey20', linetype = 'twodash')
-
-ggsave(str_c('CEQA_per_capita',  month_day, '.png'), dpi = 300)
 
 rm(ls =  newWH_list, newWH7, tmp,
    county_stats1, county_stats2, industrial_most_recent,
    tracked_warehouses2, tracked_warehouses3,
-   tracked_centroids, tracked_warehouses4)
+   tracked_centroids_county, tracked_warehouses4, tracked_centroids_places
+   )
 
 ##Trying to fix weird string encodings of project names
 project_names <- tracked_warehouses |> 
@@ -349,40 +316,46 @@ clean_names <- read_csv('project_names.csv', locale = readr::locale(encoding = '
     TRUE ~ project3)
     )
 
-tracked_warehouses <- tracked_warehouses |> 
+## Built SoCal warehouses - SCH list - need to map to APNs
+builtWH_list1 <- c(2022030012, 2020090441, 2015081081,
+                   2020050079, 2020049052, 2014011009,
+                   2020019017, 2022110076, 2022060066,
+                   2022040166, 2021090555, 2021020280,
+                   2021010163, 2020040155, 2019070040,
+                   2020059021, 2022020501, 2020059013,
+                   2021020421
+)
+
+rejectWithdrawnList <- c(
+  '2022060349', #Airport Gateway - withdrawn 2023
+  '2020039038', #Moreno Valley Trade Center - rejected 2023
+  '2021110304', #West Campus - rejected 2025
+  '2021090378', #Beaumont Summit - rejected 2022
+  '2022070365'#, #Eddie Jones Warehouse - rejected 2025
+  #2023120462 Newland Simpson Road - blocked 2025
+  #2013102053 Tracy Hills SP Commerce Project - blocked 2025
+)
+
+tracked_warehouses <- tracked_warehouses5 |> 
   left_join(clean_names, by = c('sch_number')) |> 
   select(-project) |> 
   rename(project = project3) |> 
   distinct() |> 
-  st_make_valid()
+  st_make_valid() |> 
+  mutate(status = case_when(
+    sch_number %in% builtWH_list1 ~ 'Built',
+    sch_number %in% rejectWithdrawnList ~ 'Blocked' 
+    )
+  )
 ##FIXME - Note that project is including non UTF-8 characters that aren't being fixed 
 ## Always use project3
-
-unlink('CEQA_WH.geojson')
-sf::st_write(tracked_warehouses, 'CEQA_WH.geojson')
 
 rm(ls = anomaly_projects, antiJoinList, built_WH_june2024, clean_names, county_counts)
 rm(ls = distinct_SCH, planned_list4antiJoin, plannedWH2, project_names, tempsf)
 rm(ls = types, plannedWH_noCEQA, wh_Y_list, wh_missing_list, Y_N_WH)
 
-tracked_warehouses |> 
-  st_set_geometry(value = NULL) |> 
-  filter(!is.na(year_rcvd)) |> 
-  filter(year_rcvd > 2020) |> 
-  ggplot() +
-  geom_col(aes(x = parcel_area, 
-               y = as.factor(year_rcvd), 
-              fill = document_type_bins)) +
-  theme_bw() +
-  labs(x = 'Warehouse area (sq.ft.)',
-       y = 'Year',
-       fill = 'CEQA type',
-       caption = 'Project data from CEQANET through January 11, 2025')  +
-  scale_fill_manual(values = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
-                   breaks = c('MND', 'EIR', 'NOP', 'FIN', 'Other')) +
-  scale_x_continuous(labels = scales::comma_format())
-
-ggsave('warehouses_by_yr.png')
+unlink('CEQA_WH.geojson')
+sf::st_write(tracked_warehouses, 'CEQA_WH.geojson')
 
 setwd(str_c(wd, '/CEQA_Tracker'))
 getwd()

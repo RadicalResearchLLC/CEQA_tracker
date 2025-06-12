@@ -43,17 +43,13 @@ setwd(wd)
 #  left_join(industrial_projects) |> 
 #  filter(document_portal_url != 'https://ceqanet.opr.ca.gov/2017121007/4')
 
-area <- as.numeric(st_area(newWH_list))
-
 newWH7 <- newWH_list |> 
   left_join(industrial_most_recent, by = c('sch_number')) |> 
   select(sch_number, project_title, document_portal_url, document_type)  |> 
   rename(project = project_title,
-         ceqa_url = document_portal_url,
-         stage_pending_approved = document_type
-         ) |> 
-    mutate(parcel_area = area*10.7639,
-           category = 'CEQA Review')
+         ceqa_url = document_portal_url
+         ) #|> 
+    #mutate(parcel_area = area*10.7639) 
 
 ##Check for duplicates
 industrial_multiples <- industrial_most_recent |> 
@@ -66,21 +62,17 @@ rm(ls = industrial_multiples, industrial_projects)
 
 gs = 'https://docs.google.com/spreadsheets/d/1Dw-HLvt5AzTY8or3ZFiDdlXX5Xv1u-ASD9t-153FwNc/edit#gid=0'
 Y_N_WH <- read_sheet(gs, sheet = 'Y_N_WH') |> 
-  filter(Y_N_WH == 'Y')  
+  filter(Y_N_WH == 'Y') |> 
+  select(sch_number, Notes)
 
 wh_Y_list <- industrial_most_recent |> 
-  inner_join(Y_N_WH) |> 
-  select(sch_number, project, recvd_date, document_type, lead_agency, Y_N_WH, Notes) |> 
-  distinct()
+  inner_join(Y_N_WH, by = 'sch_number') |> 
+  rename(project = project_title,
+         lead_agency = lead_agency_title,
+         ceqa_url = document_portal_url) |> 
+  select(sch_number, project, recvd_date, document_type, lead_agency, Notes, ceqa_url) |> 
+  distinct() 
 
-wh_missing_list <- plannedWH |> 
-  anti_join(wh_Y_list) |> 
-  select(sch_number, project) |> 
-  left_join(industrial_most_recent) |> 
-  mutate(Y_N_WH = 'Y', Notes = '',
-         sch_number1 = str_c("<a href='", document_portal_url, "'>", sch_number, "</a>")) |> 
-  select(sch_number, sch_number1, project, lead_agency_name, recvd_date, counties, Y_N_WH, Notes) |> 
-  rename(lead_agency = lead_agency_name) |> 
-  st_set_geometry(value = NULL)
+
 
 #sheet_append(gs, sheet = 'Y_N_WH', data = wh_missing_list)
