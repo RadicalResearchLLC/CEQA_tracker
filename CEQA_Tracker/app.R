@@ -6,12 +6,16 @@ library(DT)
 library(tidyverse)
 library(sf)
 
+#load('.RData')
+
 #header stuff
-deploy_date <- 'February 5, 2025.'
-version <- 'CEQA Warehouse Tracker Dashboard alpha v0.5, last updated'
-data_download_date <- 'CEQA Industrial data downloaded February 4, 2025'
+deploy_date <- 'June 12, 2025.'
+version <- 'CEQA Warehouse Tracker Dashboard alpha v0.6, last updated'
+data_download_date <- 'CEQA Industrial data downloaded June 10, 2025'
 
 sf_use_s2(FALSE)
+
+
 
 # Define UI for application that draws a histogram
 ui <- navbarPage(
@@ -41,23 +45,25 @@ ui <- navbarPage(
         shinycssloaders::withSpinner(DTOutput('summaryTbl', width = 500))    
       ),
       DTOutput('trackedWH'),
-      layout_columns(
-        plotOutput('County_SQFT', width = 500), 
-        plotOutput('County_perCapita', width = 500)
-        ),
       h5(),
       div(
         p(paste(version, deploy_date, data_download_date)),
         style = 'font-size:80%'
       )
-  )
+  ),
+  nav_panel(title = 'Stats',
+      layout_columns(
+        plotOutput('County_SQFT', width = 500), 
+        plotOutput('County_perCapita', width = 500)
+        )
+      )
 )
 
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
 
-  WHPal <- colorFactor( palette = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
+  WHPal <- colorFactor( palette = c('darkred', 'orange'), 
                         domain = tracked_warehouses$document_type_bins
   )
   
@@ -102,10 +108,10 @@ server <- function(input, output) {
     ggplot() +
       geom_col(data = county_stats, aes(x = acres, y = reorder(county, acresAll), fill = document_type_bins)) +
       theme_bw() +
-      labs(x = 'Acres', y = '', title = 'CEQA warehouse projects 2020-2024 - Acres',
+      labs(x = 'Acres', y = '', title = 'CEQA warehouse projects 2020-2025 - Acres',
            fill = 'CEQA Category') +
-      scale_fill_manual(values = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
-                        breaks = c('MND', 'EIR', 'NOP', 'FIN', 'Other')
+      scale_fill_manual(values = c('darkred', 'grey40'), 
+                        breaks = c('Approved', 'CEQA Review')
       )
   })
   
@@ -113,12 +119,12 @@ server <- function(input, output) {
     ggplot() +
       geom_col(data = county_stats, aes(x = WH_SF_per_capita, y = reorder(county, WH_SF_per_capitaAll), fill = document_type_bins)) +
       theme_bw() +
-      labs(x = 'Additional Warehouse SQ FT per capita', y = '', title = 'CEQA warehouse projects 2020-2024 per Capita',
+      labs(x = 'Additional Warehouse SQ FT per capita', y = '', title = 'CEQA warehouse projects 2020-2025 per Capita',
            caption = 'Warehouse data from CEQANET
        Population from CA DoF Table E-1',
            fill = 'CEQA category') +
-      scale_fill_manual(values = c('red', 'darkred', 'grey40', 'black', 'maroon'), 
-                        breaks = c('MND', 'EIR', 'NOP', 'FIN', 'Other')
+      scale_fill_manual(values = c('darkred', 'grey40'), 
+                        breaks = c('Approved', 'CEQA Review')
       )
   })
   
@@ -135,10 +141,8 @@ server <- function(input, output) {
       mutate(sch_number = paste0("<a href='", ceqa_url, "'>",
         sch_number, "</a>"),
         acres = round(parcel_area/43560, 0)) |> 
-      select(project, sch_number, lead_agency_title, acres, county, 
-        year_rcvd, document_type, recvd_date) |> 
-      rename(year = year_rcvd,
-       # project = project3,
+      select(project, sch_number, acres, county, city_CDP, document_type, recvd_date) |> 
+      rename(# project = project3,
         date = recvd_date) |> 
       filter(county %in% countyList())
     
@@ -231,9 +235,9 @@ server <- function(input, output) {
                 .groups = 'drop'
       ) |> 
       left_join(county_pop, by = c('county')) |> 
-      select(-pop2023, -pctChange) |> 
-      mutate(Warehouse.SQFT.per.capita = round(Project.Area.SQFT/pop2024, 1)) |> 
-      rename(population.2024 = pop2024) |> 
+      select(-pop2024, -pctChange) |> 
+      mutate(Warehouse.SQFT.per.capita = round(Project.Area.SQFT/pop2025, 1)) |> 
+      rename(population.2025 = pop2025) |> 
       arrange(desc(Warehouse.SQFT.per.capita))
   })
   

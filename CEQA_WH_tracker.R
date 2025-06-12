@@ -300,7 +300,7 @@ rm(ls =  newWH_list, newWH7, tmp,
    )
 
 ##Trying to fix weird string encodings of project names
-project_names <- tracked_warehouses |> 
+project_names <- tracked_warehouses5 |> 
   select(sch_number, project) |> 
   st_set_geometry(value = NULL)
 
@@ -357,8 +357,31 @@ rm(ls = types, plannedWH_noCEQA, wh_Y_list, wh_missing_list, Y_N_WH)
 unlink('CEQA_WH.geojson')
 sf::st_write(tracked_warehouses, 'CEQA_WH.geojson')
 
+#Import population data for app
+county_pop <- readxl::read_excel('E-1_2025.xlsx', sheet = 'E-1 CountyState2025', skip = 5)
+
+colnames(county_pop) <- c('county', 'pop2024', 'pop2025', 'pctChange')
+
+# preprocess stats
+county_stats1 <- tracked_warehouses |> 
+  st_set_geometry(value = NULL) |> 
+  group_by(county, document_type_bins) |> 
+  summarize(count = n(), sum_area = sum(parcel_area), .groups = 'drop') |> 
+  mutate(acres = round(sum_area/43560, 0)) |> 
+  left_join(county_pop) |> 
+  select(-pctChange) |> 
+  mutate(WH_SF_per_capita = round(sum_area/pop2025, 1))
+
+county_stats2 <- county_stats1 |> 
+  group_by(county) |> 
+  summarize(countAll = sum(count), acresAll = sum(acres),
+            WH_SF_per_capitaAll = sum(WH_SF_per_capita),
+            .groups = 'drop') 
+
+county_stats <- left_join(county_stats1, county_stats2)
+
 setwd(str_c(wd, '/CEQA_Tracker'))
 getwd()
-save.image('.Rdata')
+save.image('.RData')
 setwd(wd)
 
