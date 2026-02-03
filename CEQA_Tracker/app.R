@@ -9,9 +9,9 @@ library(sf)
 #load('.RData')
 
 #header stuff
-deploy_date <- 'June 12, 2025.'
-version <- 'CEQA Warehouse Tracker Dashboard alpha v0.6, last updated'
-data_download_date <- 'CEQA Industrial data downloaded June 10, 2025'
+deploy_date <- 'February 3, 2026'
+version <- 'CEQA Warehouse Tracker Dashboard alpha v0.8, last updated'
+data_download_date <- 'CEQA Industrial data downloaded February 2, 2026'
 
 sf_use_s2(FALSE)
 

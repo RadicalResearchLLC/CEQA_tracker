@@ -1,7 +1,7 @@
 ##State Warehouse Tracker
 ##Created by Mike McCarthy, Radical Research LLC
 ##First created June 2024
-##Last modified June 2025
+##Last modified February 2026
 ##This script is intended to be the evergreen CEQA tracking app
 ## (1) Key info should be the list of CEQA Projects that are warehouses
 ## (2) Spatial Polygons
@@ -63,16 +63,16 @@ plannedWH <- sf::st_read('https://github.com/RadicalResearchLLC/CEQA_tracker/raw
   filter(!is.na(sch_number)) #|> 
  # filter(sch_number != '2025010343')
 # select CEQA industrial warehouses with core info
+
 recent_industrial_CEQA_WH <- wh_Y_list |> 
   select(sch_number, project, ceqa_url, recvd_date, document_type, Notes) |> 
   mutate(recvd_date = as.Date(recvd_date))
 
-tidy_NODs4_join <- industrial_NODs |> 
-  select(sch_number, date1) |> 
-  group_by(sch_number) |>
-  summarize(NOD_date = min(date1)) |> 
+tidy_NODs4_join <- all_NODs |> 
+  select(sch_number, last_approval_date) |> 
   mutate(document_type = 'NOD') |> 
-  rename(NOD_type = document_type) 
+  rename(NOD_type = document_type,
+         NOD_date = last_approval_date) 
 
 ## join CEQA_WH_w_NODs
 ## identify stage - NODs required after 2024 under SB 69
@@ -128,8 +128,6 @@ narrow_planned <- plannedWH |>
 
 sf_use_s2(FALSE)
 
-## PAUSE HERE for googlesheets Authentication
-
 planned_list4antiJoin <- plannedWH |> 
   select(sch_number) |> 
   st_set_geometry(value = NULL) |> 
@@ -167,7 +165,7 @@ BIG <- sf::st_read(dsn= 'C:/Dev/CEQA_Tracker/OutlierCEQA/Barstow International G
 area2 <- as.numeric(st_area(BIG))
 BIG_ceqa <- read_csv('C:/Dev/CEQA_Tracker/OutlierCEQA/BIG_Ceqanet_info.csv') |> 
   janitor::clean_names() |>
-  filter(document_type== 'NOP') |> 
+  filter(document_type== 'EIR') |> 
   mutate(recvd_date = lubridate::mdy(received)) |> 
   select(sch_number, lead_agency_name, lead_agency_title,
          project_title, received, document_portal_url, counties, cities,
@@ -185,12 +183,25 @@ BIG2 <- BIG |>
   bind_cols(BIG_ceqa) |> 
   select(-name)
 
+##Add Desert Mountain
+DmvBP <- sf::st_read(dsn= 'C:/Dev/CEQA_Tracker/OutlierCEQA/DesertMountainViewBusinessPark.geojson') 
+area2 <- as.numeric(st_area(DmvBP))
+
+DmvBP$parcel_area <- area2
+
+DMV <- DmvBP |> 
+  mutate(
+         document_type = 'TEIS',
+         project = 'Desert Mountain View Business Park',
+         stage_pending_approved = 'EIS',
+         ceqa_url = 'https://www.aguacaliente.org/documents/planning-department/DMVBP_Draft_TEIS.pdf')
+
   ## update CEQA info
 
 names(OldNewWH2)
 names(BIG2)
 
-plannedWH2 <- bind_rows(OldNewWH2, BIG2) |> 
+plannedWH2 <- bind_rows( OldNewWH2, BIG2, ) |> 
   mutate(category = ifelse(stage_pending_approved != 'Approved', 'CEQA Review', 'Approved'))
 
 area <- as.numeric(st_area(plannedWH2))
@@ -215,11 +226,10 @@ distinct_SCH <- plannedWH2 |>
 #  select(NAME) |> 
 #  rename(county = NAME)
 
-CA_counties <- arcgislayers::arc_read('https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/5',
-                                      where = "STATE = '06'") |> 
+CA_counties <- counties(state = 'CA', cb = T, year = 2024) |> 
   st_transform(crs = 4326) |> 
-  select(BASENAME) |> 
-  rename(county = BASENAME)
+  select(NAME) |> 
+  rename(county = NAME)
 
 CA_cities <- places(state = 'CA', cb = T, #pull for California, lower detail level
                     year = 2024, 
@@ -346,7 +356,8 @@ tracked_warehouses <- tracked_warehouses5 |>
     sch_number %in% builtWH_list1 ~ 'Built',
     sch_number %in% rejectWithdrawnList ~ 'Blocked' 
     )
-  )
+  ) |> 
+  filter(is.na(status))
 ##FIXME - Note that project is including non UTF-8 characters that aren't being fixed 
 ## Always use project3
 

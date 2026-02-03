@@ -61,18 +61,19 @@ industrial_multiples <- industrial_most_recent |>
 rm(ls = industrial_multiples, industrial_projects)
 
 gs = 'https://docs.google.com/spreadsheets/d/1Dw-HLvt5AzTY8or3ZFiDdlXX5Xv1u-ASD9t-153FwNc/edit#gid=0'
-Y_N_WH <- read_sheet(gs, sheet = 'Y_N_WH') |> 
+Y_N_WH2 <- read_sheet(gs, sheet = 'Y_N_WH') |> 
   filter(Y_N_WH == 'Y') |> 
   select(sch_number, Notes)
 
 wh_Y_list <- industrial_most_recent |> 
-  inner_join(Y_N_WH, by = 'sch_number') |> 
+  inner_join(Y_N_WH2, by = 'sch_number') |> 
   rename(project = project_title,
          lead_agency = lead_agency_title,
          ceqa_url = document_portal_url) |> 
   select(sch_number, project, recvd_date, document_type, lead_agency, Notes, ceqa_url) |> 
   distinct() 
 
+rm(ls = Y_N_WH2)
 
 
 #sheet_append(gs, sheet = 'Y_N_WH', data = wh_missing_list)

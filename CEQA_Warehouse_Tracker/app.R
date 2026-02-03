@@ -1,5 +1,6 @@
 #
 ## To Do: Add Warehouse CENTRAL parcels
+## Last modified August 2024
 
 #
 library(shiny)
@@ -15,53 +16,70 @@ library(leaflet.extras)
 
 '%ni%' <- Negate('%in%') ## not in operator
 sf_use_s2(FALSE)
-deploy_date <- 'June 12, 2024'
-version <- 'CEQA Warehouse Tracker alpha v1.00, last updated'
+deploy_date <- 'February 2, 2026'
+version <- 'CEQA Warehouse Tracker alpha v1.04, last updated'
 ##FIXME
 link_github <- tags$a(shiny::icon('github'), 'GitHub Repo', 
-                      href = 'https://github.com/RadicalResearchLLC/SJV_warehouses')
+                      href = 'https://github.com/RadicalResearchLLC/CEQA_tracker')
 
-industrial_projects <- read_csv('CEQA Documents_071024.csv') |>   
+##Update
+current_list <- 'C:/Dev/CEQA_Tracker/CEQA_docs/CEQA Documents_020226.csv'
+
+##load most recent list of industrial projects from CEQANET
+industrial_projects <- read_csv(current_list) |>   
   janitor::clean_names() |> 
   dplyr::select(sch_number, lead_agency_name, lead_agency_title,
     project_title, received, document_portal_url, counties, cities,
     document_type) |> 
   mutate(recvd_date = lubridate::mdy(received))
 
+## summarize by project number
 industrial_most_recent <- industrial_projects |> 
   group_by(sch_number) |> 
     summarize(recvd_date = max(recvd_date)) |> 
   left_join(industrial_projects) |> 
   filter(document_portal_url != 'https://ceqanet.opr.ca.gov/2017121007/4')
 
+## CEQANET warehouse list from last iteration
 tracked_warehouses <- sf::st_read('https://github.com/RadicalResearchLLC/CEQA_tracker/raw/main/CEQA_WH.geojson') |> 
   st_transform(crs = 4326) |> 
-  filter(project %ni% c('South Perris Industrial Project',
-                        'Northern Gateway Commerce Center'))
+  filter(project %ni% c('South Perris Industrial Project', ### FIXME - not sure why these are handled here
+                        'Northern Gateway Commerce Center',
+                        'Tracy Northeast Business Park Project')) |> 
+  filter(sch_number != '2025010343') ## FIXME why is this here?
 
+## existing warehouses from WarehouseCITY
 warehouses <- sf::st_read('https://raw.githubusercontent.com/RadicalResearchLLC/WarehouseMap/main/WarehouseCITY/geoJSON/comboFinal.geojson') |> 
   st_transform(crs = 4326) |> 
   filter(category == 'Existing') |> 
   select(apn, category, geometry) |> 
   rename(project = apn) 
 
+## list of projects as previously checked for warehouse
 gs = 'https://docs.google.com/spreadsheets/d/1Dw-HLvt5AzTY8or3ZFiDdlXX5Xv1u-ASD9t-153FwNc/edit#gid=0'
 
 Y_N_WH <- read_sheet(gs, sheet = 'Y_N_WH') |> 
   filter(Y_N_WH != '') #|> 
-  #select(sch_number, sch_number1, Y_N_WH)
+ # select(sch_number, sch_number1, Y_N_WH)
+
+##FIXME
+##Is that still used
+#plannedWH <- sf::st_read('https://raw.githubusercontent.com/RadicalResearchLLC/PlannedWarehouses/main/CEQA_WH.geojson')
 
 source('C:/Dev/CEQA_Tracker/new_warehouses_list.R')
 
-tracked_warehouses2 <- bind_rows(tracked_warehouses, newWH7) 
+tracked_warehouses2 <- bind_rows(tracked_warehouses, newWH7) |> 
+  rename(category = document_type_bins)
 
+## FIXME
+##Embed in spreadsheet rather than code
 builtWH_list <- c('2022030012', '2020090441', '2015081081',
                   '2020050079', '2020049052', '2014011009',
                   '2020019017', '2022110076', '2022060066',
                   '2022040166', '2021090555', '2021020280',
                   '2021010163', '2020040155', '2019070040',
                   '2020059021', '2022020501', '2020059013',
-                  '2021020421'
+                  '2021020421', '2021050330'
                   )
 
 drawWH <- Y_N_WH |> 
@@ -70,10 +88,13 @@ drawWH <- Y_N_WH |>
   filter(sch_number %ni% builtWH_list) |> 
   select(-lead_agency) |> 
   mutate(recvd_date = as.Date(recvd_date)) |> 
-  arrange(desc(recvd_date))
+  arrange(desc(recvd_date)) |> 
+  filter(is.na(Notes))
+
 
 all_warehouses <- tracked_warehouses2 |> 
   select(project, category, geometry) |> 
+  #rename(category = stage_pending_approved) |> 
   bind_rows(warehouses)
 
 tracked_nogeom <- tracked_warehouses2 |> 
@@ -102,7 +123,6 @@ unknownProjects <- industrial_most_recent |>
 
 
 
-#plannedWH <- sf::st_read('https://raw.githubusercontent.com/RadicalResearchLLC/PlannedWarehouses/main/CEQA_WH.geojson')
 
 ui <- navbarPage(
   title = 'CEQA Warehouse Tracker',
@@ -118,7 +138,25 @@ ui <- navbarPage(
     bg = '#333',
     fg = 'white'),
   #icon = shiny::img(height = 60, src = 'RNOW.png')),
-  nav_panel(title = 'Tracked Projects',
+  nav_panel(
+    title = 'Untracked Projects',
+    
+    fluidRow(
+      column(width = 3, 
+             selectizeInput(
+               label = 'Select rows for action buttons',
+               inputId = 'rows',
+               choices = 1:nrow(unknownProjects),
+               multiple = 10),
+             actionButton(
+               inputId = 'Export',
+               label = 'Append to sheet of projects')
+      ),
+      column(width = 9, DTOutput('untrackedProj'))
+    ),
+    verbatimTextOutput('print')
+  ),
+   nav_panel(title = 'Tracked Projects',
     p(
     fileInput(
       inputId = 'projects',
@@ -132,24 +170,7 @@ ui <- navbarPage(
       DTOutput('trackedWH')
     )
   ),
-  nav_panel(
-   title = 'Untracked Projects',
-    
-    fluidRow(
-      column(width = 3, 
-        selectizeInput(
-          label = 'Select rows for action buttons',
-          inputId = 'rows',
-          choices = 1:nrow(unknownProjects),
-          multiple = 10),
-      actionButton(
-        inputId = 'Export',
-        label = 'Append to sheet of projects')
-      ),
-      column(width = 9, DTOutput('untrackedProj'))
-      ),
-    verbatimTextOutput('print')
-    ),
+
   nav_panel(
     title = 'Draw Warehouses',
     fluidRow(
@@ -211,7 +232,6 @@ output$map <- renderLeaflet({
   map1 <- leaflet() |> 
     setView(lat = 36.46, lng = -118.90, zoom = 5) |> 
     addProviderTiles(providers$Esri.WorldImagery, group = 'Imagery') |> 
-    addProviderTiles(providers$OpenRailwayMap, group = 'Rail') |> 
     addProviderTiles(providers$CartoDB.Positron, group = 'Basemap')  |>
     addLayersControl(
       baseGroups = c('Basemap', 'Imagery'),
