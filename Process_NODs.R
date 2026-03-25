@@ -71,7 +71,7 @@ all_NODs <- bind_rows(industrial_NODs, industrial_NODs_non)
 all_NODs_chk <- all_NODs |> 
   select(sch_number) |> 
   group_by(sch_number) |> 
-  summarize(count = n()) #|> 
+  summarize(count = n()) |> 
   filter(count > 1)
 
 rm(ls= NODs, NODs_2024_25, pre2022, NOD2022_23, NODs_2026)

@@ -16,14 +16,14 @@ library(leaflet.extras)
 
 '%ni%' <- Negate('%in%') ## not in operator
 sf_use_s2(FALSE)
-deploy_date <- 'February 2, 2026'
-version <- 'CEQA Warehouse Tracker alpha v1.04, last updated'
+deploy_date <- 'March 2, 2026'
+version <- 'CEQA Warehouse Tracker alpha v1.05, last updated'
 ##FIXME
 link_github <- tags$a(shiny::icon('github'), 'GitHub Repo', 
                       href = 'https://github.com/RadicalResearchLLC/CEQA_tracker')
 
 ##Update
-current_list <- 'C:/Dev/CEQA_Tracker/CEQA_docs/CEQA Documents_020226.csv'
+current_list <- 'C:/Dev/CEQA_Tracker/CEQA_docs/CEQA Documents_030226.csv'
 
 ##load most recent list of industrial projects from CEQANET
 industrial_projects <- read_csv(current_list) |>   
