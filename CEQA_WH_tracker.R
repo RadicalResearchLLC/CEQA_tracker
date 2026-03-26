@@ -26,6 +26,12 @@ CEQA_dir <- 'C:/Dev/CEQA_Tracker/CEQA_docs/'
 ceqa_docs <- file.info(list.files(CEQA_dir, full.names =T)) #file names
 most_recent_doc <- rownames(ceqa_docs)[which.max(ceqa_docs$mtime)] #pull out most recent save
 
+##Googlesheets authorization to make sure we're good early rather than within 'newWarehousesList.R'
+gs = 'https://docs.google.com/spreadsheets/d/1Dw-HLvt5AzTY8or3ZFiDdlXX5Xv1u-ASD9t-153FwNc/edit#gid=0'
+Y_N_WH2 <- read_sheet(gs, sheet = 'Y_N_WH') |> 
+  filter(Y_N_WH == 'Y') |> 
+  select(sch_number, Notes)
+
 #list of CEQA industrial projects
 ##Includes non-warehouses
 industrial_projects <- read_csv(most_recent_doc) |>   
@@ -177,7 +183,7 @@ BIG_ceqa <- read_csv('C:/Dev/CEQA_Tracker/OutlierCEQA/BIG_Ceqanet_info.csv') |>
   select(sch_number, ceqa_url, parcel_area, recvd_date, document_type,
          project_title) |> 
   rename(project = project_title) |> 
-  mutate(stage_pending_approved = 'NOP')
+  mutate(stage_pending_approved = 'EIR')
   
 BIG2 <- BIG |> 
   bind_cols(BIG_ceqa) |> 
@@ -341,8 +347,9 @@ rejectWithdrawnList <- c(
   '2020039038', #Moreno Valley Trade Center - rejected 2023
   '2021110304', #West Campus - rejected 2025
   '2021090378', #Beaumont Summit - rejected 2022
-  '2022070365'#, #Eddie Jones Warehouse - rejected 2025
-  #2023120462 Newland Simpson Road - blocked 2025
+  '2022070365', #, #Eddie Jones Warehouse - rejected 2025
+  '2023120462', #Newland Simpson Road - blocked 2025
+  '2006041096' #Freeway corridor specific plan
   #2013102053 Tracy Hills SP Commerce Project - blocked 2025
 )
 
